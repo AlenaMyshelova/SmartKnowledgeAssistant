@@ -2,3 +2,8 @@
 __pycache__/
 node_modules/
 .env
+backend/.env
+data/*.db
+.DS_Store
+dist/
+build/
