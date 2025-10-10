@@ -1,7 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from app.vector_search import vector_search
+from app.data_manager import DataManager
 
+data_manager = DataManager()
 # Импортируем наши настройки и роутер
 from app.core.config import settings
 from app.api.v1.api import api_router
@@ -17,6 +20,17 @@ app = FastAPI(
     docs_url="/docs",                      # URL для Swagger UI
     redoc_url="/redoc"                     # URL для ReDoc
 )
+
+@app.on_event("startup")
+async def startup_event():
+    # Проверяем наличие индекса FAQ
+    print("Checking vector search indices...")
+    
+    # Убедимся, что индекс FAQ создан
+    try:
+        data_manager._ensure_faq_index()
+    except Exception as e:
+        print(f"Warning: Failed to initialize FAQ index: {e}")
 
 # Настройка CORS (Cross-Origin Resource Sharing)
 # Позволяет React приложению обращаться к нашему API

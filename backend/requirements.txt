@@ -6,4 +6,5 @@ openai==1.45.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
 httpx<0.28
-
+faiss-cpu==1.7.4
+numpy==1.26.1
