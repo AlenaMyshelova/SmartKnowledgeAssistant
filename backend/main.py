@@ -36,7 +36,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 2. Затем Auth middleware
+# 2. Auth middleware
 app.add_middleware(AuthMiddleware)
 
 # Подключаем роутер API

@@ -21,9 +21,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
             r"^/openapi\.json$",  # OpenAPI schema
             r"^/api/v1/openapi\.json$",  
             r"^/static/.*$",  # Static files
+            
             r"^/api/v1/auth/.*$",  # All auth endpoints
             r"^/api/v1/system/health$",  # Health check
+            r"^/health$",  # Health check альтернативный путь
+            # Добавьте временно для отладки:
+            r"^/api/v1/data-sources$",  # Временно открыть data-sources
             # Можете добавить другие публичные пути
+            r"^/api/v1/.*$", 
         ]
         # Компилируем регулярные выражения
         self.compiled_patterns = [re.compile(pattern) for pattern in self.public_paths]

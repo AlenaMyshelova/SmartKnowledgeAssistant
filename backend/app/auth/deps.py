@@ -80,7 +80,7 @@ async def get_current_user(
     if current_user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Необходима аутентификация",
+            detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
@@ -96,7 +96,7 @@ async def get_current_active_user(
     if not current_user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Аккаунт неактивен"
+            detail="The account is inactive"
         )
     
     return current_user
