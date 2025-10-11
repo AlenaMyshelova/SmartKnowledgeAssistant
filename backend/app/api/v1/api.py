@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import chat, data_sources, system
+from app.api.v1.endpoints import auth, chat, data_sources, system
 
 # Главный роутер API v1
 api_router = APIRouter()
@@ -9,3 +9,4 @@ api_router = APIRouter()
 api_router.include_router(system.router, tags=["system"])
 api_router.include_router(chat.router, tags=["chat"])  
 api_router.include_router(data_sources.router, tags=["data-sources"])
+api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
