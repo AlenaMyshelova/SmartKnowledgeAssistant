@@ -1,24 +1,40 @@
+from __future__ import annotations
+
 from typing import Dict, Any, Optional, List
-import httpx
-from urllib.parse import urlencode
-from fastapi import HTTPException
-from app.core.config import settings
 import logging
+from urllib.parse import urlencode
+
+import httpx
+from fastapi import HTTPException
+
+from app.core.config import settings
 
 # Настройка логирования
 logger = logging.getLogger(__name__)
 
+# Общий таймаут для HTTP-запросов к OAuth-провайдерам
+HTTP_TIMEOUT = 15.0
+
+
 class OAuthProvider:
-    """Базовый класс для OAuth провайдеров"""
-    
+    """Базовый класс для OAuth провайдеров."""
+
     def __init__(self, provider_config: Dict[str, Any]):
         self.config = provider_config
         self.client_id = provider_config.get("client_id")
         self.client_secret = provider_config.get("client_secret")
-        self.name = "generic"  # Будет переопределено в подклассах
-    
-    def get_authorization_url(self, redirect_uri: str, state: str) -> str:
-        """Формирование URL для авторизации"""
+        self.name = "generic"  # Переопределяется в подклассах
+
+    def get_authorization_url(
+        self,
+        redirect_uri: str,
+        state: str,
+        extra_params: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """
+        Формирование URL для авторизации.
+        extra_params — для access_type=offline, prompt=consent, code_challenge и т.д.
+        """
         params = {
             "client_id": self.client_id,
             "redirect_uri": redirect_uri,
@@ -26,162 +42,186 @@ class OAuthProvider:
             "response_type": "code",
             "state": state,
         }
-        
+        if extra_params:
+            params.update(extra_params)
+
+        # urlencode по умолчанию кодирует пробел как '+', что приемлемо для OAuth
         return f"{self.config['authorize_url']}?{urlencode(params)}"
-    
-    async def exchange_code_for_token(self, code: str, redirect_uri: str) -> str:
-        """Обмен авторизационного кода на access token"""
-        async with httpx.AsyncClient() as client:
-            data = {
-                "client_id": self.client_id,
-                "client_secret": self.client_secret,
-                "code": code,
-                "grant_type": "authorization_code",
-                "redirect_uri": redirect_uri,
-            }
-            
-            headers = {"Accept": "application/json"}
-            
+
+    async def exchange_code_for_token(
+        self,
+        code: str,
+        redirect_uri: str,
+        code_verifier: Optional[str] = None,
+    ) -> str:
+        """
+        Обмен авторизационного кода на access token.
+        Поддерживает PKCE: при наличии code_verifier — добавляем его в запрос.
+        Возвращает строку access_token.
+        """
+        data = {
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,  # у публичных приложений может отсутствовать
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri,
+        }
+        if code_verifier:
+            data["code_verifier"] = code_verifier
+
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             try:
-                response = await client.post(
-                    self.config["token_url"],
-                    data=data,
-                    headers=headers
-                )
-                
-                if response.status_code != 200:
-                    logger.error(f"OAuth token exchange failed for {self.name}: {response.text}")
-                    raise HTTPException(status_code=400, detail=f"Failed to exchange code for token: {response.status_code}")
-                
-                token_data = response.json()
-                return token_data.get("access_token")
-            
+                resp = await client.post(self.config["token_url"], data=data, headers=headers)
             except httpx.RequestError as e:
-                logger.error(f"OAuth token exchange request failed: {e}")
-                raise HTTPException(status_code=500, detail="Failed to connect to OAuth provider")
-    
+                logger.error("OAuth token exchange request failed (%s): %s", self.name, e)
+                raise HTTPException(status_code=502, detail="Failed to connect to OAuth provider")
+
+        if resp.status_code != 200:
+            logger.error(
+                "OAuth token exchange failed for %s: %s %s",
+                self.name, resp.status_code, resp.text
+            )
+            raise HTTPException(status_code=400, detail="Failed to exchange code for token")
+
+        token_data = resp.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            logger.error("No access_token in token response for %s: %s", self.name, token_data)
+            raise HTTPException(status_code=400, detail="Provider did not return access_token")
+
+        return access_token
+
     async def get_user_info(self, access_token: str) -> Dict[str, Any]:
-        """Получение информации о пользователе"""
+        """Получение информации о пользователе — реализуется в подклассах."""
         raise NotImplementedError
 
+
 class GoogleOAuth(OAuthProvider):
-    """Google OAuth провайдер"""
-    
+    """Google OAuth провайдер."""
+
     def __init__(self, provider_config: Dict[str, Any]):
         super().__init__(provider_config)
         self.name = "google"
-    
+
     async def get_user_info(self, access_token: str) -> Dict[str, Any]:
-        """Получение информации о пользователе от Google"""
-        async with httpx.AsyncClient() as client:
+        """
+        Получение информации о пользователе от Google.
+        Используем v3 userinfo endpoint (OIDC совместимый).
+        """
+        headers = {"Authorization": f"Bearer {access_token}"}
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             try:
-                response = await client.get(
-                    self.config["userinfo_url"],
-                    headers={"Authorization": f"Bearer {access_token}"}
-                )
-                
-                if response.status_code != 200:
-                    logger.error(f"Failed to get user info from Google: {response.text}")
-                    raise HTTPException(status_code=400, detail="Failed to get user info from Google")
-                
-                user_data = response.json()
-                
-                return {
-                    "provider_id": str(user_data.get("sub")),
-                    "email": user_data.get("email"),
-                    "name": user_data.get("name", user_data.get("email", "").split("@")[0]),
-                    "avatar_url": user_data.get("picture"),
-                    "provider": "google",
-                    "provider_data": user_data
-                }
-            
+                resp = await client.get(self.config["userinfo_url"], headers=headers)
             except httpx.RequestError as e:
-                logger.error(f"Request to Google failed: {e}")
-                raise HTTPException(status_code=500, detail="Failed to connect to Google")
+                logger.error("Request to Google failed: %s", e)
+                raise HTTPException(status_code=502, detail="Failed to connect to Google")
+
+        if resp.status_code != 200:
+            logger.error("Failed to get user info from Google: %s %s", resp.status_code, resp.text)
+            raise HTTPException(status_code=400, detail="Failed to get user info from Google")
+
+        user_data = resp.json()
+        return {
+            "provider_id": str(user_data.get("sub")),
+            "email": user_data.get("email"),
+            "name": user_data.get("name") or (user_data.get("email", "").split("@")[0]),
+            "avatar_url": user_data.get("picture"),
+            "provider": "google",
+            "provider_data": user_data,
+        }
+
 
 class GitHubOAuth(OAuthProvider):
-    """GitHub OAuth провайдер"""
-    
+    """GitHub OAuth провайдер."""
+
     def __init__(self, provider_config: Dict[str, Any]):
         super().__init__(provider_config)
         self.name = "github"
-    
-    async def get_user_info(self, access_token: str) -> Dict[str, Any]:
-        """Получение информации о пользователе от GitHub"""
-        async with httpx.AsyncClient() as client:
-            try:
-                # Получаем основную информацию о пользователе
-                user_response = await client.get(
-                    self.config["userinfo_url"],
-                    headers={"Authorization": f"Bearer {access_token}"}
-                )
-                
-                if user_response.status_code != 200:
-                    logger.error(f"Failed to get user info from GitHub: {user_response.text}")
-                    raise HTTPException(status_code=400, detail="Failed to get user info from GitHub")
-                
-                user_data = user_response.json()
-                
-                # Получаем email (может быть приватным)
-                email = user_data.get("email")
-                
-                if not email:
-                    email_response = await client.get(
-                        "https://api.github.com/user/emails",
-                        headers={"Authorization": f"Bearer {access_token}"}
-                    )
-                    
-                    if email_response.status_code == 200:
-                        emails = email_response.json()
-                        for email_info in emails:
-                            if email_info.get("verified") and email_info.get("primary"):
-                                email = email_info.get("email")
-                                break
-                        if not email and emails:
-                            # Если нет подтвержденного основного, берем первый
-                            email = emails[0].get("email")
-                
-                return {
-                    "provider_id": str(user_data.get("id")),
-                    "email": email or f"{user_data.get('login')}@github.example.com",
-                    "name": user_data.get("name") or user_data.get("login"),
-                    "avatar_url": user_data.get("avatar_url"),
-                    "provider": "github",
-                    "provider_data": user_data
-                }
-            
-            except httpx.RequestError as e:
-                logger.error(f"Request to GitHub failed: {e}")
-                raise HTTPException(status_code=500, detail="Failed to connect to GitHub")
 
-# Добавьте другие провайдеры здесь при необходимости
+    async def get_user_info(self, access_token: str) -> Dict[str, Any]:
+        """
+        Получение информации о пользователе от GitHub.
+        GitHub может не возвращать email в /user, поэтому дополнительно дергаем /user/emails.
+        """
+        headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            # Основной профиль
+            try:
+                user_resp = await client.get(self.config["userinfo_url"], headers=headers)
+            except httpx.RequestError as e:
+                logger.error("Request to GitHub (userinfo) failed: %s", e)
+                raise HTTPException(status_code=502, detail="Failed to connect to GitHub")
+
+            if user_resp.status_code != 200:
+                logger.error("Failed to get user info from GitHub: %s %s", user_resp.status_code, user_resp.text)
+                raise HTTPException(status_code=400, detail="Failed to get user info from GitHub")
+
+            user_data = user_resp.json()
+            email = user_data.get("email")
+
+            # Email может быть приватным — берём из /user/emails
+            if not email:
+                try:
+                    emails_resp = await client.get("https://api.github.com/user/emails", headers=headers)
+                except httpx.RequestError as e:
+                    logger.error("Request to GitHub (emails) failed: %s", e)
+                    raise HTTPException(status_code=502, detail="Failed to connect to GitHub")
+
+                if emails_resp.status_code == 200:
+                    emails = emails_resp.json()
+                    # Пытаемся найти primary verified
+                    primary_verified = next(
+                        (e for e in emails if e.get("primary") and e.get("verified")),
+                        None,
+                    )
+                    if primary_verified:
+                        email = primary_verified.get("email")
+                    elif emails:
+                        # Фоллбек — первый доступный
+                        email = emails[0].get("email")
+
+            return {
+                "provider_id": str(user_data.get("id")),
+                "email": email or f"{user_data.get('login')}@github.example.com",
+                "name": user_data.get("name") or user_data.get("login"),
+                "avatar_url": user_data.get("avatar_url"),
+                "provider": "github",
+                "provider_data": user_data,
+            }
+
+
+# ---- Реестр/фабрика провайдеров ----
 
 def get_available_providers() -> List[Dict[str, str]]:
     """
-    Получение списка настроенных провайдеров OAuth
+    Возвращает список провайдеров, которые корректно сконфигурированы
+    (есть client_id и client_secret).
     """
-    providers = []
-    for name, config in settings.OAUTH_PROVIDERS.items():
-        if config.get("client_id") and config.get("client_secret"):
-            providers.append({
-                "name": name,
-                "display_name": name.capitalize()
-            })
+    providers: List[Dict[str, str]] = []
+    for name, cfg in settings.OAUTH_PROVIDERS.items():
+        if cfg.get("client_id") and cfg.get("client_secret"):
+            providers.append({"name": name, "display_name": name.capitalize()})
     return providers
 
+
 def get_oauth_provider(provider_name: str) -> OAuthProvider:
-    """Получение OAuth провайдера по названию"""
+    """Фабрика: возвращает инстанс конкретного провайдера."""
     if provider_name not in settings.OAUTH_PROVIDERS:
         raise HTTPException(status_code=400, detail=f"Unsupported OAuth provider: {provider_name}")
-    
+
     provider_config = settings.OAUTH_PROVIDERS[provider_name]
-    
     if not provider_config.get("client_id") or not provider_config.get("client_secret"):
         raise HTTPException(status_code=400, detail=f"Provider {provider_name} is not properly configured")
-    
+
     if provider_name == "google":
         return GoogleOAuth(provider_config)
-    elif provider_name == "github":
+    if provider_name == "github":
         return GitHubOAuth(provider_config)
-    else:
-        raise HTTPException(status_code=400, detail=f"Provider {provider_name} not implemented")
+
+    raise HTTPException(status_code=400, detail=f"Provider {provider_name} not implemented")
