@@ -15,20 +15,27 @@ class AuthMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         # Пути, которые не требуют аутентификации
         self.public_paths = [
-            r"^/$",  # Root
-            r"^/docs.*$",  # Swagger docs
-            r"^/redoc.*$",  # ReDoc
-            r"^/openapi\.json$",  # OpenAPI schema
-            r"^/api/v1/openapi\.json$",  
-            r"^/static/.*$",  # Static files
+            # Root и основные API docs
+            r"^/$",
+            r"^/docs.*$", 
+            r"^/redoc.*$",
+            r"^/openapi\.json$",
+            r"^/api/v1/openapi\.json$",
+            r"^/static/.*$",
             
-            r"^/api/v1/auth/.*$",  # All auth endpoints
-            r"^/api/v1/system/health$",  # Health check
-            r"^/health$",  # Health check альтернативный путь
-            # Добавьте временно для отладки:
-            r"^/api/v1/data-sources$",  # Временно открыть data-sources
-            # Можете добавить другие публичные пути
-            r"^/api/v1/.*$", 
+            # Health check endpoints
+            r"^/health$",
+            r"^/api/v1/health$",
+            r"^/api/v1/system/health$",
+            
+            # Auth endpoints
+            r"^/api/v1/auth/.*$",
+            r"^/api/v1/login/.*$",     
+            r"^/api/v1/providers$",   
+            r"^/api/v1/auth/google/callback.*$", 
+
+            # Временно для отладки
+            r"^/api/v1/data-sources$",
         ]
         # Компилируем регулярные выражения
         self.compiled_patterns = [re.compile(pattern) for pattern in self.public_paths]
@@ -37,28 +44,47 @@ class AuthMiddleware(BaseHTTPMiddleware):
         """Метод dispatch вместо __call__ для BaseHTTPMiddleware"""
         path = request.url.path
         
-        # Проверяем, является ли путь публичным
+        # Добавляем отладочные логи
+        if settings.DEBUG:
+            print(f"🔍 Auth middleware checking: {request.method} {path}")
+        
+        # Проверяем CORS preflight запросы (OPTIONS) - всегда пропускаем
+        if request.method == "OPTIONS":
+            if settings.DEBUG:
+                print(f"✅ CORS preflight request: {path}")
+            return await call_next(request)
+        
+        # Проверяем публичные пути
         if self._is_public_path(path):
+            if settings.DEBUG:
+                print(f"✅ Public path allowed: {path}")
             return await call_next(request)
         
         # Получаем токен
         token = self._get_token_from_request(request)
         
         if not token:
+            if settings.DEBUG:
+                print(f"❌ No token for protected path: {path}")
             return JSONResponse(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 content={"detail": "Authentication required"},
-                headers={"WWW-Authenticate": "Bearer"},
+                headers={"WWW-Authenticate": "Bearer", "Access-Control-Allow-Origin": "*"},
             )
         
         # Проверяем токен
         token_data = decode_access_token(token)
         if not token_data:
+            if settings.DEBUG:
+                print(f"❌ Invalid token for path: {path}")
             return JSONResponse(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 content={"detail": "Invalid or expired token"},
-                headers={"WWW-Authenticate": "Bearer"},
+                headers={"WWW-Authenticate": "Bearer", "Access-Control-Allow-Origin": "*"},
             )
+        
+        if settings.DEBUG:
+            print(f"✅ Auth successful: {path} (User: {token_data.sub})")
         
         # Добавляем информацию о пользователе в request
         request.state.user_id = token_data.sub
