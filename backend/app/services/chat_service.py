@@ -27,8 +27,8 @@ class ChatService:
             context, scarcity_note = self._build_context(relevant_data)
             
             # Generate response from OpenAI (используем правильный метод)
-            response = await openai_service.generate_chat_response(
-                user_message=message,
+            response = await openai_service.generate_response(
+                query=message,
                 context=context,
                 scarcity_note=scarcity_note
             )
@@ -80,8 +80,8 @@ class ChatService:
             context, scarcity_note = self._build_context(relevant_data)
             
             # Шаг 3: Генерация ответа через OpenAI
-            ai_response = await openai_service.generate_chat_response(
-                user_message=request.message,
+            ai_response = await openai_service.generate_response(
+                query=request.message,
                 context=context,
                 scarcity_note=scarcity_note
             )
@@ -101,6 +101,7 @@ class ChatService:
             raise Exception(f"Failed to process chat message: {str(e)}")
     
     def _search_relevant_data(self, message: str, data_source: str) -> List[Dict[str, Any]]:
+        logger.info(f"Searching in {data_source} for query: {message[:50]}...")
         """Поиск релевантных данных в базе знаний."""
         if data_source == "company_faqs":
             return self.data_manager.search_faqs(message)

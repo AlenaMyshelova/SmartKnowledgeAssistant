@@ -116,11 +116,17 @@ async def get_chat_history(
         chat_data = result["chat"]
         chat_data["user_id"] = current_user.id  # Добавляем user_id
         
+        messages = []
+        for msg in result["messages"]:
+            msg["chat_id"] = chat_id  # ← Добавляем chat_id
+            messages.append(msg)
+        
         return ChatHistoryResponse(
             chat=ChatSession(**chat_data),
-            messages=result["messages"],
-            total_messages=len(result["messages"])
+            messages=messages,
+            total_messages=len(messages)
         )
+     
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

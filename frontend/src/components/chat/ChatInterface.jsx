@@ -241,63 +241,6 @@ const ChatInterface = () => {
               {message.content}
             </Typography>
 
-            {/* Sources for assistant messages */}
-            {!isUser && message.sources && message.sources.length > 0 && (
-              <Box sx={{ mt: 2 }}>
-                <Accordion
-                  expanded={isShowingSources}
-                  onChange={() => toggleSourcesForMessage(message.id)}
-                  sx={{
-                    backgroundColor: "rgba(0,0,0,0.05)",
-                    boxShadow: "none",
-                    "&:before": { display: "none" },
-                  }}
-                >
-                  <AccordionSummary
-                    expandIcon={<ExpandMoreIcon />}
-                    sx={{
-                      minHeight: 36,
-                      "& .MuiAccordionSummary-content": { my: 0.5 },
-                    }}
-                  >
-                    <Chip
-                      icon={<SourceIcon />}
-                      label={`${message.sources.length} sources`}
-                      size="small"
-                      variant="outlined"
-                    />
-                  </AccordionSummary>
-                  <AccordionDetails>
-                    <Stack spacing={1}>
-                      {message.sources.map((source, idx) => (
-                        <Paper
-                          key={idx}
-                          variant="outlined"
-                          sx={{ p: 1.5, backgroundColor: "background.paper" }}
-                        >
-                          <Typography variant="caption" color="text.secondary">
-                            {source.metadata?.source || `Source ${idx + 1}`}
-                          </Typography>
-                          <Typography variant="body2" sx={{ mt: 0.5 }}>
-                            {source.content}
-                          </Typography>
-                          {source.metadata?.score && (
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                            >
-                              Relevance:{" "}
-                              {(source.metadata.score * 100).toFixed(0)}%
-                            </Typography>
-                          )}
-                        </Paper>
-                      ))}
-                    </Stack>
-                  </AccordionDetails>
-                </Accordion>
-              </Box>
-            )}
-
             {/* Feedback buttons for assistant messages */}
             {!isUser && (
               <Box sx={{ display: "flex", gap: 1, mt: 1.5 }}>
