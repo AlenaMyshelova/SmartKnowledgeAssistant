@@ -109,7 +109,7 @@ const ChatInterface = () => {
           }}
         >
           <Typography variant="body2" color="text.secondary">
-            Задайте вопрос о компании TechNova
+            Ask me questions about TechNova
           </Typography>
         </Box>
 

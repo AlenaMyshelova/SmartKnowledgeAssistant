@@ -118,6 +118,23 @@ export default function Login() {
         alignItems: "center",
         minHeight: "100vh",
         background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+
+        //        // 2. Закат:
+        //   // background: "linear-gradient(135deg, #ff9a9e 0%, #fecfef 50%, #fecfef 100%)",
+
+        //   // 3. Северное сияние:
+        //   // background: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)",
+
+        //   // 4. Космос:
+        //   // background: "linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)",
+
+        //   // 5. Элегантный серый:
+        //   // background: "linear-gradient(135deg, #8e9eab 0%, #eef2f3 100%)",
+
+        //   // 6. Фоновое изображение:
+        //   // backgroundImage: "url('/path/to/your/image.jpg')",
+        //   // backgroundSize: "cover",
+        //   // backgroundPosition: "center",
       }}
     >
       <Card sx={{ maxWidth: 400, width: "100%", m: 2 }}>
