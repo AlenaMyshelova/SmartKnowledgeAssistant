@@ -57,34 +57,17 @@ export default function Login() {
     loadProviders();
   }, []);
 
-  // Handle OAuth login
-  const handleOAuthLogin = async (provider) => {
+  // Handle OAuth login - упрощенная версия с прямым редиректом
+  const handleOAuthLogin = (provider) => {
     try {
       setError(null);
-      setLoading(true);
-
+      //
       const baseUrl =
         import.meta.env.VITE_API_URL || "http://localhost:8001/api/v1";
-      const response = await fetch(`${baseUrl}/auth/login/${provider}`, {
-        method: "GET",
-        credentials: "include",
-        headers: { Accept: "application/json" },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (data.auth_url) {
-        window.location.href = data.auth_url;
-      } else {
-        throw new Error("Authorization URL not received");
-      }
+      window.location.href = `${baseUrl}/auth/login/${provider}`;
     } catch (err) {
       console.error("OAuth login error:", err);
       setError(`Failed to login with ${provider}`);
-      setLoading(false);
     }
   };
 

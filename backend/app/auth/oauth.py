@@ -48,71 +48,69 @@ class OAuthProvider:
         # urlencode по умолчанию кодирует пробел как '+', что приемлемо для OAuth
         return f"{self.config['authorize_url']}?{urlencode(params)}"
 
-async def exchange_code_for_token(
-    self,
-    code: str,
-    redirect_uri: str,
-    code_verifier: Optional[str] = None,
-) -> str:
-    """Exchange authorization code for access token."""
-    data = {
-        "client_id": self.client_id,
-        "client_secret": self.client_secret,
-        "code": code,
-        "grant_type": "authorization_code",
-        "redirect_uri": redirect_uri,
-    }
-    if code_verifier:
-        data["code_verifier"] = code_verifier
+    async def exchange_code_for_token(
+        self,
+        code: str,
+        redirect_uri: str,
+        code_verifier: Optional[str] = None,
+    ) -> str:
+        """Exchange authorization code for access token."""
+        print(f"[OAUTH] Exchanging code for token")
+        print(f"[OAUTH] Provider: {self.name}")
+        print(f"[OAUTH] Redirect URI: {redirect_uri}")
+        
+        data = {
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri,
+        }
+        
+        if code_verifier:
+            data["code_verifier"] = code_verifier
 
-    # Log request for debugging (without sensitive data)
-    logger.debug(f"Exchanging code for {self.name}, redirect_uri: {redirect_uri}")
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
 
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/x-www-form-urlencoded",
-    }
-
-    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-        try:
-            resp = await client.post(self.config["token_url"], data=data, headers=headers)
-        except httpx.RequestError as e:
-            logger.error(f"OAuth token exchange request failed ({self.name}): {e}")
-            raise HTTPException(
-                status_code=502, 
-                detail=f"Failed to connect to {self.name.capitalize()}"
-            )
-
-        if resp.status_code != 200:
-            # Log response for debugging
-            logger.error(
-                f"OAuth token exchange failed for {self.name}: "
-                f"status={resp.status_code}, response={resp.text[:500]}"
-            )
-            
-            # Parse error if possible
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             try:
-                error_data = resp.json()
-                error_msg = error_data.get("error_description", "Unknown error")
-            except:
-                error_msg = "Failed to exchange code"
+                resp = await client.post(
+                    self.config["token_url"], 
+                    data=data, 
+                    headers=headers
+                )
+                print(f"[OAUTH] Token exchange response status: {resp.status_code}")
                 
-            raise HTTPException(
-                status_code=400, 
-                detail=f"{self.name.capitalize()}: {error_msg}"
-            )
+                if resp.status_code != 200:
+                    print(f"[OAUTH ERROR] Token exchange failed")
+                    print(f"[OAUTH ERROR] Response: {resp.text}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Failed to exchange code for token: {resp.text}"
+                    )
+                    
+            except httpx.RequestError as e:
+                print(f"[OAUTH ERROR] Request failed: {e}")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Failed to connect to {self.name}"
+                )
 
         token_data = resp.json()
-        access_token = token_data.get("access_token")
+        print(f"[OAUTH] Token data keys: {list(token_data.keys())}")
         
+        access_token = token_data.get("access_token")
         if not access_token:
-            logger.error(f"No access_token in response for {self.name}: {list(token_data.keys())}")
+            print(f"[OAUTH ERROR] No access token in response")
             raise HTTPException(
-                status_code=400, 
-                detail="Provider did not return access token"
+                status_code=400,
+                detail="No access token received"
             )
-
-        logger.info(f"Successfully exchanged code for {self.name}")
+        
+        print(f"[OAUTH] Successfully got access token")
         return access_token
 
     async def get_user_info(self, access_token: str) -> Dict[str, Any]:
