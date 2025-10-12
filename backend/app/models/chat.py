@@ -1,66 +1,89 @@
-from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+"""
+Chat-related data models with incognito mode support.
+"""
+
+from datetime import datetime
+from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field
+
+
+class ChatMessage(BaseModel):
+    """Model for a single chat message."""
+    id: Optional[int] = None
+    chat_id: int
+    role: str  # 'user' or 'assistant'
+    content: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class ChatSession(BaseModel):
+    """Model for a chat session."""
+    id: Optional[int] = None
+    user_id: int  # Always required since only authenticated users have access
+    title: Optional[str] = "New Chat"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    is_archived: bool = False
+    is_incognito: bool = False  # Flag for incognito mode (not saved to history)
+    message_count: int = 0
+    last_message: Optional[str] = None
+
 
 class ChatRequest(BaseModel):
-    """
-    Модель для запроса к чату.
-    Описывает какие данные должен прислать клиент.
-    
-    Пример:
-    {
-        "message": "Как работает ваша компания?",
-        "data_source": "company_faqs"
-    }
-    """
-    message: str                    # Сообщение пользователя (обязательно)
-    data_source: str = "company_faqs"  # Источник данных (по умолчанию FAQ)
+    """Request model for chat messages."""
+    message: str
+    chat_id: Optional[int] = None
+    data_source: str = "company_faqs"
+    is_incognito: bool = False  # User can choose incognito mode
+
 
 class ChatResponse(BaseModel):
-    """
-    Модель для ответа чата.
-    Описывает какие данные мы отправим клиенту обратно.
-    
-    Пример:
-    {
-        "response": "Наша компания работает в сфере...",
-        "relevant_data": [{"Question": "...", "Answer": "..."}],
-        "data_source": "company_faqs"
-    }
-    """
-    response: str                           # Ответ от AI
-    relevant_data: List[Dict[str, Any]]     # Найденные данные из базы
-    data_source: str                        # Какой источник использовался
+    """Response model for chat messages."""
+    response: str
+    chat_id: Optional[int] = None  # Optional for incognito mode
+    message_id: Optional[int] = None  # Optional for incognito mode
+    is_incognito: bool = False
+    sources: Optional[List[Dict[str, Any]]] = None
 
-class ChatHistoryItem(BaseModel):
-    """
-    Модель для одного элемента истории чата.
-    Используется при получении истории разговоров.
-    """
-    id: int
-    user_message: str
-    assistant_response: str
-    data_source: Optional[str]
-    timestamp: str
 
-class DataSourceInfo(BaseModel):
-    """
-    Информация об источнике данных.
-    Показывает какие данные доступны в системе.
-    """
-    name: str
-    records_count: int
-    columns: List[str]
+class ChatListResponse(BaseModel):
+    """Response model for chat list."""
+    chats: List[ChatSession]
+    total: int
+    page: int
+    page_size: int
 
-class HealthResponse(BaseModel):
-    """
-    Ответ от health check эндпоинта.
-    """
-    status: str
-    message: str
-    version: str
 
-class CategoryResponse(BaseModel):
-    """
-    Список доступных категорий FAQ.
-    """
-    categories: List[str]
+class ChatHistoryResponse(BaseModel):
+    """Response model for chat history."""
+    chat: ChatSession
+    messages: List[ChatMessage]
+    total_messages: int
+
+
+class CreateChatRequest(BaseModel):
+    """Request model for creating a new chat."""
+    title: Optional[str] = "New Chat"
+    first_message: Optional[str] = None
+    is_incognito: bool = False  # Option to create incognito chat
+
+
+class UpdateChatRequest(BaseModel):
+    """Request model for updating chat."""
+    title: Optional[str] = None
+    is_archived: Optional[bool] = None
+
+
+class SearchChatsRequest(BaseModel):
+    """Request model for searching chats."""
+    query: str
+    include_archived: bool = False
+    limit: int = 20
+
+
+class ChatModeStatus(BaseModel):
+    """Response model for current chat mode status."""
+    mode: str  # 'normal' or 'incognito'
+    active_incognito_chats: int
+    saved_chats: int
