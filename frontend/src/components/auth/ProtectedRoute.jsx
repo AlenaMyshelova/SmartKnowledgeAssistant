@@ -17,13 +17,17 @@ export default function ProtectedRoute() {
           return;
         }
 
-        // Verify token is valid by getting current user
-        await authApi.getCurrentUser();
-        setIsAuthenticated(true);
+        // Verify token is valid
+        const user = await authApi.getCurrentUser();
+        if (user) {
+          setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
+          localStorage.removeItem("token");
+        }
       } catch (error) {
         console.error("Auth check failed:", error);
         setIsAuthenticated(false);
-        // Clear invalid token
         localStorage.removeItem("token");
       } finally {
         setIsLoading(false);
@@ -41,7 +45,7 @@ export default function ProtectedRoute() {
           display: "flex",
           justifyContent: "center",
           alignItems: "center",
-          height: "50vh",
+          height: "100vh",
         }}
       >
         <CircularProgress />

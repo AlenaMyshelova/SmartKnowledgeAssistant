@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import {
-  Container,
   Paper,
   Typography,
   Box,
@@ -79,35 +78,45 @@ const ChatInterface = () => {
   };
 
   return (
-    <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
+    <Box
+      sx={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        p: 2,
+      }}
+    >
       <Paper
         elevation={3}
         sx={{
-          height: "80vh",
+          flexGrow: 1,
           display: "flex",
           flexDirection: "column",
           borderRadius: 2,
           overflow: "hidden",
+          maxWidth: "900px",
+          width: "100%",
+          mx: "auto",
         }}
       >
-        {/* Заголовок */}
+        {/* Мини-заголовок чата (опционально, можно удалить если не нужен) */}
         <Box
           sx={{
-            p: 2,
-            backgroundColor: "primary.main",
-            color: "white",
+            p: 1.5,
+            backgroundColor: "grey.50",
+            borderBottom: "1px solid",
+            borderColor: "divider",
           }}
         >
-          <Typography variant="h6">Smart Knowledge Assistant</Typography>
-          <Typography variant="caption">
+          <Typography variant="body2" color="text.secondary">
             Задайте вопрос о компании TechNova
           </Typography>
         </Box>
 
-        <Divider />
-
         {/* Список сообщений */}
-        <MessageList messages={messages} loading={loading} />
+        <Box sx={{ flexGrow: 1, overflow: "hidden" }}>
+          <MessageList messages={messages} loading={loading} />
+        </Box>
 
         <Divider />
 
@@ -125,6 +134,7 @@ const ChatInterface = () => {
         open={!!error}
         autoHideDuration={6000}
         onClose={handleCloseError}
+        anchorOrigin={{ vertical: "top", horizontal: "center" }}
       >
         <Alert
           onClose={handleCloseError}
@@ -134,7 +144,7 @@ const ChatInterface = () => {
           {error}
         </Alert>
       </Snackbar>
-    </Container>
+    </Box>
   );
 };
 

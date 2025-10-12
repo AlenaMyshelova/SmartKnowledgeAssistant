@@ -125,6 +125,29 @@ class GoogleOAuth(OAuthProvider):
         super().__init__(provider_config)
         self.name = "google"
 
+    def get_authorization_url(
+        self,
+        redirect_uri: str,
+        state: str,
+        extra_params: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """
+        Формирование URL для авторизации Google с параметром выбора аккаунта.
+        """
+        # Добавляем параметры специфичные для Google
+        google_params = {
+            "access_type": "offline",  # Для получения refresh token
+            "prompt": "select_account",  # ВАЖНО: Всегда показывать страницу выбора аккаунта
+            "include_granted_scopes": "true",  # Включить все разрешенные scope
+        }
+        
+        # Если переданы дополнительные параметры, добавляем их
+        if extra_params:
+            google_params.update(extra_params)
+            
+        # Вызываем родительский метод с параметрами Google
+        return super().get_authorization_url(redirect_uri, state, google_params)
+
     async def get_user_info(self, access_token: str) -> Dict[str, Any]:
         """
         Получение информации о пользователе от Google.
@@ -151,8 +174,6 @@ class GoogleOAuth(OAuthProvider):
             "provider": "google",
             "provider_data": user_data,
         }
-
-
 class GitHubOAuth(OAuthProvider):
     """GitHub OAuth провайдер."""
 
