@@ -14,6 +14,9 @@ from app.auth.deps import get_current_user
 from app.auth.jwt import create_access_token, decode_access_token
 from app.auth.oauth import get_oauth_provider
 from app.models.user import User, UserCreate
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["auth"]) 
 

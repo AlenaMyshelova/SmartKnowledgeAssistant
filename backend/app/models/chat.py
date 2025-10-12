@@ -1,11 +1,12 @@
 """
 Chat-related data models with incognito mode support.
 """
-
+ 
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
+ 
 
 class ChatMessage(BaseModel):
     """Model for a single chat message."""
@@ -59,7 +60,7 @@ class ChatHistoryResponse(BaseModel):
     """Response model for chat history."""
     chat: ChatSession
     messages: List[ChatMessage]
-    total_messages: int
+    total_messages: int = Field(0) 
 
 
 class CreateChatRequest(BaseModel):

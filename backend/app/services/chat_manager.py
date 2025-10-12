@@ -1,335 +1,396 @@
 """
 Chat management service with incognito mode for authenticated users.
 """
+from __future__ import annotations
 
+import sqlite3
 import json
 import logging
-import sqlite3
-import shutil
-from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
+from datetime import datetime, timezone
+from typing import Optional
 from pathlib import Path
-from contextlib import contextmanager
-
-from app.models.chat import ChatSession, ChatMessage
 
 logger = logging.getLogger(__name__)
 
-# Database path
-DB_PATH = Path(__file__).parent.parent.parent / "data" / "assistant.db"
+# Database path (…/backend/data/assistant.db)
+DB_PATH = (Path(__file__).resolve().parents[2] / "data" / "assistant.db")
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)  # гарантируем наличие каталога
 
 
-@contextmanager
-def get_db_connection():
-    """
-    Context manager for database connections.
-    """
+def _connect() -> sqlite3.Connection:
+    """Создаём соединение с включёнными внешними ключами."""
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-    finally:
-        conn.close()
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
 
 
 class ChatManager:
-    """Service for managing chat sessions with incognito mode."""
-    
     def __init__(self):
-        """Initialize chat manager and ensure database tables exist."""
-        self._backup_database()  # Create backup before any migrations
-        self._migrate_tables()  # Migrate existing tables
-        self._ensure_tables()
-        # Store incognito chats in memory (not persisted)
-        self.incognito_chats: Dict[int, Dict[str, Any]] = {}
-        self.incognito_messages: Dict[int, List[Dict[str, Any]]] = {}
-        self.incognito_counter = 0
-    
-    def _backup_database(self):
-        """Create a backup of the database before migration."""
-        if DB_PATH.exists():
-            backup_path = DB_PATH.parent / f"assistant_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
-            try:
-                shutil.copy2(DB_PATH, backup_path)
-                logger.info(f"Database backed up to {backup_path}")
-            except Exception as e:
-                logger.warning(f"Could not create backup: {e}")
-    
-    def _migrate_tables(self):
-        """Migrate existing tables to new structure."""
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            
-            try:
-                # Check and migrate chat_sessions table
-                cursor.execute("""
-                    SELECT name FROM sqlite_master 
-                    WHERE type='table' AND name='chat_sessions'
-                """)
-                
-                if cursor.fetchone():
-                    # Get current table structure
-                    cursor.execute("PRAGMA table_info(chat_sessions)")
-                    columns = cursor.fetchall()
-                    column_names = [col[1] for col in columns]
-                    
-                    # If it's the old structure with session_id, migrate data
-                    if 'session_id' in column_names and 'title' not in column_names:
-                        logger.info("Migrating old chat_sessions table...")
-                        
-                        # Create new table with correct structure
-                        cursor.execute("""
-                            CREATE TABLE IF NOT EXISTS chat_sessions_new (
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                user_id INTEGER NOT NULL,
-                                title TEXT DEFAULT 'New Chat',
-                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                                is_archived BOOLEAN DEFAULT 0,
-                                is_incognito BOOLEAN DEFAULT 0,
-                                message_count INTEGER DEFAULT 0,
-                                last_message TEXT,
-                                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                            )
-                        """)
-                        
-                        # Migrate data from old table
-                        cursor.execute("""
-                            INSERT INTO chat_sessions_new (id, user_id, created_at)
-                            SELECT id, user_id, created_at 
-                            FROM chat_sessions
-                            WHERE user_id IS NOT NULL
-                        """)
-                        
-                        # Rename tables
-                        cursor.execute("DROP TABLE chat_sessions")
-                        cursor.execute("ALTER TABLE chat_sessions_new RENAME TO chat_sessions")
-                        
-                        logger.info("Successfully migrated chat_sessions table")
-                    
-                    # Add missing columns to existing table
-                    else:
-                        columns_to_add = [
-                            ("is_incognito", "BOOLEAN DEFAULT 0"),
-                            ("is_archived", "BOOLEAN DEFAULT 0"),
-                            ("message_count", "INTEGER DEFAULT 0"),
-                            ("last_message", "TEXT"),
-                            ("title", "TEXT DEFAULT 'New Chat'"),
-                            ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-                        ]
-                        
-                        for column_name, column_def in columns_to_add:
-                            if column_name not in column_names:
-                                try:
-                                    cursor.execute(f"""
-                                        ALTER TABLE chat_sessions 
-                                        ADD COLUMN {column_name} {column_def}
-                                    """)
-                                    logger.info(f"Added column {column_name} to chat_sessions")
-                                except sqlite3.OperationalError as e:
-                                    logger.debug(f"Column {column_name} already exists or error: {e}")
-                
-                # Check and migrate chat_messages table
-                cursor.execute("""
-                    SELECT name FROM sqlite_master 
-                    WHERE type='table' AND name='chat_messages'
-                """)
-                
-                if cursor.fetchone():
-                    cursor.execute("PRAGMA table_info(chat_messages)")
-                    columns = cursor.fetchall()
-                    column_names = [col[1] for col in columns]
-                    
-                    # If it's the old structure, migrate data
-                    if 'session_id' in column_names and 'chat_id' not in column_names:
-                        logger.info("Migrating old chat_messages table...")
-                        
-                        # Create new table
-                        cursor.execute("""
-                            CREATE TABLE IF NOT EXISTS chat_messages_new (
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                chat_id INTEGER NOT NULL,
-                                role TEXT NOT NULL,
-                                content TEXT NOT NULL,
-                                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                                metadata TEXT,
-                                FOREIGN KEY (chat_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
-                            )
-                        """)
-                        
-                        # Try to migrate data if possible
-                        # This assumes we can map session_id to chat_id somehow
-                        # If not possible, just create empty new table
-                        try:
-                            cursor.execute("""
-                                INSERT INTO chat_messages_new (role, content, timestamp, metadata)
-                                SELECT 
-                                    CASE 
-                                        WHEN message_type = 'user' THEN 'user'
-                                        WHEN message_type = 'assistant' THEN 'assistant'
-                                        ELSE message_type
-                                    END as role,
-                                    content,
-                                    timestamp,
-                                    data_source as metadata
-                                FROM chat_messages
-                                WHERE content IS NOT NULL
-                            """)
-                            logger.info("Migrated messages from old table")
-                        except Exception as e:
-                            logger.warning(f"Could not migrate messages: {e}")
-                        
-                        # Rename tables
-                        cursor.execute("DROP TABLE chat_messages")
-                        cursor.execute("ALTER TABLE chat_messages_new RENAME TO chat_messages")
-                        
-                        logger.info("Successfully migrated chat_messages table")
-                    
-                    # Add missing columns if needed
-                    else:
-                        columns_to_add = [
-                            ("metadata", "TEXT"),
-                            ("role", "TEXT")
-                        ]
-                        
-                        for column_name, column_def in columns_to_add:
-                            if column_name not in column_names:
-                                try:
-                                    cursor.execute(f"""
-                                        ALTER TABLE chat_messages 
-                                        ADD COLUMN {column_name} {column_def}
-                                    """)
-                                    logger.info(f"Added column {column_name} to chat_messages")
-                                except sqlite3.OperationalError as e:
-                                    logger.debug(f"Column {column_name} already exists or error: {e}")
-                
-                conn.commit()
-                logger.info("Database migration completed successfully")
-                
-            except Exception as e:
-                logger.error(f"Error during migration: {e}")
-                conn.rollback()
-                raise
-    
-    def _ensure_tables(self):
-        """Ensure required database tables exist with correct structure."""
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Create tables if they don't exist
-            cursor.execute('''
+        self.db_path = str(DB_PATH)
+        self.incognito_chats: dict[int, dict] = {}
+        self.incognito_messages: dict[int, list[dict]] = {}
+        self._init_db()
+
+    # -------- schema --------
+    def _init_db(self):
+        """Создание таблиц и миграции недостающих колонок."""
+        with _connect() as conn:
+            cur = conn.cursor()
+
+            # Таблицы (если нет — создаём)
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS chat_sessions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    title TEXT DEFAULT 'New Chat',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    is_archived BOOLEAN DEFAULT 0,
-                    is_incognito BOOLEAN DEFAULT 0,
-                    message_count INTEGER DEFAULT 0,
-                    last_message TEXT,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id     INTEGER NOT NULL,
+                    title       TEXT,
+                    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_archived BOOLEAN   DEFAULT 0
                 )
-            ''')
-            
-            cursor.execute('''
+            """)
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS chat_messages (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    chat_id INTEGER NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    metadata TEXT,
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id    INTEGER NOT NULL,
+                    role       TEXT    NOT NULL,
+                    content    TEXT    NOT NULL,
+                    metadata   TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (chat_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
                 )
-            ''')
-            
-            # Create indexes (with proper error handling)
-            indexes = [
-                ("idx_chat_sessions_user_id", "chat_sessions(user_id)"),
-                ("idx_chat_sessions_incognito", "chat_sessions(is_incognito)"),
-                ("idx_chat_messages_chat_id", "chat_messages(chat_id)")
-            ]
-            
-            for index_name, index_def in indexes:
-                try:
-                    cursor.execute(f'''
-                        CREATE INDEX IF NOT EXISTS {index_name} ON {index_def}
-                    ''')
-                except sqlite3.OperationalError as e:
-                    logger.debug(f"Index {index_name} already exists or error: {e}")
-            
+            """)
+
+            # Миграции недостающих колонок
+            self._add_column_if_missing(cur, "chat_sessions", "created_at",
+                                        "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+            self._add_column_if_missing(cur, "chat_sessions", "updated_at",
+                                        "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+            self._add_column_if_missing(cur, "chat_sessions", "is_archived",
+                                        "is_archived BOOLEAN DEFAULT 0")
+            self._add_column_if_missing(cur, "chat_messages", "created_at",
+                                        "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+
+            # Индексы (idempotent через IF NOT EXISTS с уникальным именем индекса)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated ON chat_sessions(user_id, updated_at)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_chat_id ON chat_messages(chat_id)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_chat_id_id ON chat_messages(chat_id, id)")
+
             conn.commit()
-            logger.info("Database tables verified/created successfully")
-    
-    # ... rest of the ChatManager class remains the same ...
-    
-    async def create_incognito_chat(
-        self, 
+
+    @staticmethod
+    def _add_column_if_missing(cur: sqlite3.Cursor, table: str, col: str, ddl: str):
+        cur.execute(f"PRAGMA table_info({table})")
+        cols = [r[1] for r in cur.fetchall()]
+        if col not in cols:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+            logger.info("Added column %s to %s", col, table)
+
+    # -------- utils --------
+    @staticmethod
+    def _now_iso() -> str:
+        # UTC в ISO-8601 с Z
+        return datetime.now(timezone.utc).isoformat()
+
+    # -------- public API --------
+    def create_chat(
+        self,
         user_id: int,
+        first_message: Optional[str] = None,
         title: Optional[str] = None,
-        first_message: Optional[str] = None
+        is_incognito: bool = False,
     ) -> int:
-        """
-        Create an incognito chat session (stored in memory only).
-        
-        Args:
-            user_id: ID of the authenticated user
-            title: Optional title for the chat
-            first_message: Optional first message to generate title
-            
-        Returns:
-            ID of the created incognito chat session
-        """
-        # Generate temporary ID for incognito chat
-        self.incognito_counter += 1
-        chat_id = -self.incognito_counter  # Negative IDs for incognito chats
-        
-        # Auto-generate title if needed
+        """Create a new chat session."""
+        if is_incognito:
+            chat_id = -len(self.incognito_chats) - 1
+            now = self._now_iso()
+            self.incognito_chats[chat_id] = {
+                "user_id": user_id,
+                "title": title or "Incognito Chat",
+                "created_at": now,
+                "updated_at": now,
+            }
+            self.incognito_messages[chat_id] = []
+            logger.info("Created incognito chat %s for user %s", chat_id, user_id)
+            return chat_id
+
         if not title and first_message:
-            title = self._generate_title_from_message(first_message)
-        elif not title:
-            title = "Incognito Chat"
-        
-        # Store in memory
-        self.incognito_chats[chat_id] = {
-            'id': chat_id,
-            'user_id': user_id,
-            'title': title,
-            'created_at': datetime.utcnow().isoformat(),
-            'updated_at': datetime.utcnow().isoformat(),
-            'is_archived': False,
-            'is_incognito': True,
-            'message_count': 0,
-            'last_message': None
-        }
-        
-        self.incognito_messages[chat_id] = []
-        
-        logger.info(f"Created incognito chat {chat_id} for user {user_id}")
+            title = first_message[:50] + ("..." if len(first_message) > 50 else "")
+
+        with _connect() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO chat_sessions (user_id, title, created_at, updated_at) "
+                "VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                (user_id, title or "New Chat"),
+            )
+            chat_id = cur.lastrowid
+            conn.commit()
+        logger.info("Created chat %s for user %s", chat_id, user_id)
         return chat_id
-    
-    # ... rest of the methods remain the same ...
-    
-    def _generate_title_from_message(self, message: str, max_length: int = 50) -> str:
-        """
-        Generate a chat title from the first message.
-        
-        Args:
-            message: First message content
-            max_length: Maximum length of the title
+
+    def add_message(self, chat_id: int, role: str, content: str, metadata: dict | None = None) -> int:
+        """Add a message to chat."""
+        if chat_id < 0:
+            # Incognito: всё в памяти
+            messages = self.incognito_messages.setdefault(chat_id, [])
+            message_id = -len(messages) - 1
+            now = self._now_iso()
+            messages.append({
+                "id": message_id,
+                "role": role,
+                "content": content,
+                "metadata": metadata,
+                "created_at": now,      # единый ключ времени
+            })
+            if chat_id in self.incognito_chats:
+                self.incognito_chats[chat_id]["updated_at"] = now
+            return message_id
+
+        with _connect() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO chat_messages (chat_id, role, content, metadata, created_at) "
+                "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                (chat_id, role, content, json.dumps(metadata) if metadata else None),
+            )
+            mid = cur.lastrowid
+            cur.execute("UPDATE chat_sessions SET updated_at=CURRENT_TIMESTAMP WHERE id=?", (chat_id,))
+            conn.commit()
+            return mid
+
+    def get_user_chats(
+        self,
+        user_id: int,
+        include_archived: bool = False,
+        include_incognito: bool = False,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict:
+        """Get user's chat sessions (list)."""
+        chats: list[dict] = []
+        with _connect() as conn:
+            cur = conn.cursor()
+            q = """
+                SELECT 
+                    cs.id,
+                    cs.title,
+                    cs.created_at,
+                    cs.updated_at,
+                    cs.is_archived,
+                    COUNT(cm.id) AS message_count,
+                    (SELECT content FROM chat_messages 
+                     WHERE chat_id = cs.id 
+                     ORDER BY id DESC LIMIT 1) AS last_message
+                FROM chat_sessions cs
+                LEFT JOIN chat_messages cm ON cs.id = cm.chat_id
+                WHERE cs.user_id = ?
+            """
+            params = [user_id]
+            if not include_archived:
+                q += " AND (cs.is_archived = 0 OR cs.is_archived IS NULL)"
+            q += " GROUP BY cs.id ORDER BY cs.updated_at DESC LIMIT ? OFFSET ?"
+            params += [page_size, (page - 1) * page_size]
+            cur.execute(q, params)
+            for row in cur.fetchall():
+                chats.append({
+                    "id": row["id"],
+                    "title": row["title"] or "New Chat",
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                    "is_archived": bool(row["is_archived"]) if row["is_archived"] is not None else False,
+                    "is_incognito": False,
+                    "is_pinned": False,
+                    "message_count": row["message_count"],
+                    "last_message": (row["last_message"][:100] if row["last_message"] else None),
+                })
+
+            # Счётчик total — учитываем include_archived
+            if include_archived:
+                cur.execute("SELECT COUNT(*) AS total FROM chat_sessions WHERE user_id=?", (user_id,))
+            else:
+                cur.execute(
+                    "SELECT COUNT(*) AS total FROM chat_sessions WHERE user_id=? AND (is_archived = 0 OR is_archived IS NULL)",
+                    (user_id,),
+                )
+            total = cur.fetchone()["total"]
+
+        if include_incognito:
+            for cid, data in self.incognito_chats.items():
+                if data["user_id"] == user_id:
+                    msgs = self.incognito_messages.get(cid, [])
+                    chats.append({
+                        "id": cid,
+                        "title": data["title"],
+                        "created_at": data["created_at"],
+                        "updated_at": data["updated_at"],
+                        "is_archived": False,
+                        "is_incognito": True,
+                        "is_pinned": False,
+                        "message_count": len(msgs),
+                        "last_message": (msgs[-1]["content"][:100] if msgs else None),
+                    })
+
+        return {"chats": chats, "total": total, "page": page, "page_size": page_size}
+
+    def get_chat_history(self, chat_id: int, user_id: int, limit: int | None = None, offset: int = 0) -> dict:
+        """Get chat history with messages."""
+        if chat_id < 0:
+            chat = self.incognito_chats.get(chat_id)
+            if not chat or chat["user_id"] != user_id:
+                raise ValueError("Chat not found")
+            msgs = self.incognito_messages.get(chat_id, [])
+            if limit:
+                msgs = msgs[offset: offset + limit]
+            return {
+                "chat": {
+                    "id": chat_id,
+                    "title": chat["title"],
+                    "created_at": chat["created_at"],
+                    "updated_at": chat["updated_at"],
+                    "is_incognito": True,
+                },
+                "messages": msgs,
+            }
+
+        with _connect() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id, title, created_at, updated_at FROM chat_sessions WHERE id=? AND user_id=?",
+                (chat_id, user_id),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise ValueError("Chat not found")
+
+            chat_info = {
+                "id": row["id"],
+                "title": row["title"] or "New Chat",
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "is_incognito": False,
+            }
+
+            q = """
+                SELECT id, role, content, metadata, created_at
+                FROM chat_messages
+                WHERE chat_id = ?
+                ORDER BY id ASC
+            """
+            params = [chat_id]
+            if limit:
+                q += " LIMIT ? OFFSET ?"
+                params += [limit, offset]
+            cur.execute(q, params)
+            messages = [{
+                "id": r["id"],
+                "role": r["role"],
+                "content": r["content"],
+                "metadata": (json.loads(r["metadata"]) if r["metadata"] else None),
+                "created_at": r["created_at"],
+            } for r in cur.fetchall()]
+
+        return {"chat": chat_info, "messages": messages}
+
+    def update_chat(self, chat_id: int, user_id: int, title: str | None = None, is_archived: bool | None = None) -> bool:
+        """Update chat session."""
+        if chat_id < 0:
+            chat = self.incognito_chats.get(chat_id)
+            if chat and chat["user_id"] == user_id and title is not None:
+                chat["title"] = title
+                chat["updated_at"] = self._now_iso()
+                return True
+            return False
+
+        with _connect() as conn:
+            cur = conn.cursor()
+            sets, params = [], []
+            if title is not None:
+                sets.append("title = ?"); params.append(title)
+            if is_archived is not None:
+                sets.append("is_archived = ?"); params.append(int(is_archived))
+            if not sets:
+                return False
+            sets.append("updated_at = CURRENT_TIMESTAMP")
+            q = f"UPDATE chat_sessions SET {', '.join(sets)} WHERE id = ? AND user_id = ?"
+
+
+    def delete_chat(self, chat_id: int, user_id: int) -> bool:
+        """Delete chat session."""
+        if chat_id < 0:
+            chat = self.incognito_chats.get(chat_id)
+            if chat and chat["user_id"] == user_id:
+                del self.incognito_chats[chat_id]
+                if chat_id in self.incognito_messages:
+                    del self.incognito_messages[chat_id]
+                return True
+            return False
+
+        with _connect() as conn:
+            cur = conn.cursor()
+            # Сначала удаляем сообщения
+            cur.execute("DELETE FROM chat_messages WHERE chat_id = ?", (chat_id,))
+            # Затем удаляем чат
+            cur.execute("DELETE FROM chat_sessions WHERE id = ? AND user_id = ?", (chat_id, user_id))
+            success = cur.rowcount > 0
+            conn.commit()
+            return success
+
+    def search_chats(self, user_id: int, query: str, include_archived: bool = False, limit: int = 50) -> list:
+        """Search in user's chats."""
+        with _connect() as conn:
+            cur = conn.cursor()
+            base_query = """
+                SELECT DISTINCT cs.id, cs.title, cs.created_at, cs.updated_at
+                FROM chat_sessions cs
+                LEFT JOIN chat_messages cm ON cs.id = cm.chat_id
+                WHERE cs.user_id = ? AND (cs.title LIKE ? OR cm.content LIKE ?)
+            """
+            if not include_archived:
+                base_query += " AND (cs.is_archived = 0 OR cs.is_archived IS NULL)"
+            base_query += " ORDER BY cs.updated_at DESC LIMIT ?"
             
-        Returns:
-            Generated title
-        """
-        # Clean and truncate message
-        title = message.strip().replace('\n', ' ')
-        
-        if len(title) > max_length:
-            title = title[:max_length-3] + '...'
-        
-        return title or "New Chat"
+            search_pattern = f"%{query}%"
+            cur.execute(base_query, (user_id, search_pattern, search_pattern, limit))
+            
+            results = []
+            for row in cur.fetchall():
+                results.append({
+                    "id": row["id"],
+                    "title": row["title"] or "New Chat",
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"]
+                })
+            return results
 
+    def get_chat_mode_status(self, user_id: int) -> dict:
+        """Get chat mode status."""
+        active_incognito = sum(1 for chat in self.incognito_chats.values() if chat["user_id"] == user_id)
+        
+        with _connect() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM chat_sessions WHERE user_id = ?", (user_id,))
+            saved_chats = cur.fetchone()[0]
+        
+        return {
+            "active_incognito_chats": active_incognito,
+            "saved_chats": saved_chats
+        }
 
-# Create singleton instance
+    def clear_incognito_chats(self, user_id: int) -> int:
+        """Clear all incognito chats for user."""
+        count = 0
+        chats_to_delete = []
+        
+        for chat_id, chat_data in self.incognito_chats.items():
+            if chat_data["user_id"] == user_id:
+                chats_to_delete.append(chat_id)
+                count += 1
+        
+        for chat_id in chats_to_delete:
+            del self.incognito_chats[chat_id]
+            if chat_id in self.incognito_messages:
+                del self.incognito_messages[chat_id]
+        
+        return count
 chat_manager = ChatManager()

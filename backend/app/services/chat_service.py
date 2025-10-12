@@ -5,7 +5,8 @@ from app.services.openai_service import openai_service
 from app.data_manager import DataManager
 from app.database import DatabaseManager
 from app.chat_utils import build_context_from_results
-
+import logging
+logger = logging.getLogger(__name__)
 class ChatService:
     """
     Сервис для обработки чат сообщений.
@@ -15,6 +16,44 @@ class ChatService:
     def __init__(self):
         self.data_manager = DataManager()
         self.db_manager = DatabaseManager()
+        
+    async def get_response(self, message: str, data_source: str = "company_faqs", user_id: int = None) -> Dict[str, Any]:
+        """Get AI response for a message."""
+        try:
+            # Используем существующий метод поиска
+            relevant_data = self._search_relevant_data(message, data_source)
+            
+            # Формируем контекст
+            context, scarcity_note = self._build_context(relevant_data)
+            
+            # Generate response from OpenAI (используем правильный метод)
+            response = await openai_service.generate_chat_response(
+                user_message=message,
+                context=context,
+                scarcity_note=scarcity_note
+            )
+            
+            # Format sources for display
+            sources = [
+                {
+                    "title": data.get("title", f"Source {i+1}"),
+                    "content": data.get("content", "")[:200] + ("..." if len(data.get("content", "")) > 200 else ""),
+                    "metadata": data.get("metadata", {})
+                }
+                for i, data in enumerate(relevant_data)
+            ]
+            
+            return {
+                "response": response,
+                "sources": sources
+            }
+        except Exception as e:
+            logger.error(f"Error generating response: {str(e)}")
+            return {
+                "response": "I'm sorry, I encountered an error processing your request.",
+                "sources": []
+            }   
+
     
     async def process_chat_message(self, request: ChatRequest) -> ChatResponse:
         """
