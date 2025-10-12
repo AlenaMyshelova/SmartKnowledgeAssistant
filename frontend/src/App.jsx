@@ -97,7 +97,8 @@ function App() {
     const checkApi = async () => {
       try {
         const health = await chatApi.healthCheck();
-        setApiStatus(health.status === "healthy" ? "online" : "offline");
+        // Исправлено: проверяем "ok" вместо "healthy"
+        setApiStatus(health.status === "ok" ? "online" : "offline");
       } catch (error) {
         console.error("API health check failed:", error);
         setApiStatus("offline");
