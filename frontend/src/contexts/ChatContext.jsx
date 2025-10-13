@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import { useAuth } from "./AuthContext";
 import { chatApi } from "../services/api";
+
 const ChatContext = createContext();
 
 export const useChat = () => {
@@ -18,7 +19,7 @@ export const useChat = () => {
 };
 
 export const ChatProvider = ({ children }) => {
-  const { token } = useAuth();
+  const { token, user, isAuthenticated } = useAuth(); // Добавили user и isAuthenticated
 
   // Chat states
   const [chats, setChats] = useState([]);
@@ -72,6 +73,8 @@ export const ChatProvider = ({ children }) => {
     async (pageNum = 1, append = false) => {
       if (!token) return;
 
+      console.log("Loading chats, user:", user, "page:", pageNum); // Для отладки
+
       try {
         setLoading(true);
         const params = new URLSearchParams({
@@ -81,6 +84,8 @@ export const ChatProvider = ({ children }) => {
         });
 
         const data = await apiCall(`/chat/sessions?${params}`);
+
+        console.log("Loaded chats data:", data); // Для отладки
 
         if (append) {
           setChats((prev) => [...prev, ...(data.chats || [])]);
@@ -98,7 +103,7 @@ export const ChatProvider = ({ children }) => {
         setLoading(false);
       }
     },
-    [token, isIncognito]
+    [token, isIncognito, user] // Добавлен user в зависимости
   );
 
   // Load more chats for infinite scroll
@@ -189,7 +194,7 @@ export const ChatProvider = ({ children }) => {
         const requestData = {
           message: message,
           chat_id: currentChat?.id || null,
-          data_source: dataSource || "company_faqs", // Всегда должно быть значение
+          data_source: dataSource || "company_faqs",
           is_incognito: isIncognito,
         };
 
@@ -238,7 +243,6 @@ export const ChatProvider = ({ children }) => {
 
         // Обновляем сообщения
         setMessages((prev) => {
-          // Удаляем временное сообщение пользователя и добавляем постоянные
           const filtered = prev.filter((m) => m.id !== userMessage.id);
           return [
             ...filtered,
@@ -268,6 +272,11 @@ export const ChatProvider = ({ children }) => {
           );
         }
 
+        // Перезагружаем список чатов если это не incognito
+        if (!isIncognito) {
+          loadChats(1); // Обновляем список чатов
+        }
+
         return data;
       } catch (err) {
         // Удаляем временное сообщение при ошибке
@@ -287,7 +296,7 @@ export const ChatProvider = ({ children }) => {
         throw err;
       }
     },
-    [currentChat, isIncognito]
+    [currentChat, isIncognito, loadChats]
   );
 
   // Delete chat
@@ -460,9 +469,10 @@ export const ChatProvider = ({ children }) => {
     }
   }, []);
 
-  // Initial load
+  // ВАЖНО: Загружаем чаты когда пользователь меняется
   useEffect(() => {
-    if (token) {
+    if (isAuthenticated && user?.id && token) {
+      console.log("User authenticated, loading chats for:", user);
       loadChats(1);
 
       // Load saved filters from localStorage
@@ -474,8 +484,16 @@ export const ChatProvider = ({ children }) => {
           console.error("Error loading saved filters:", err);
         }
       }
+    } else if (!isAuthenticated) {
+      // Очищаем все при выходе
+      console.log("User not authenticated, clearing all data");
+      setChats([]);
+      setCurrentChat(null);
+      setMessages([]);
+      setSearchResults([]);
+      setDeletedChats([]);
     }
-  }, [token]);
+  }, [isAuthenticated, user?.id, token]); // Следим за изменениями авторизации
 
   // Search effect with debounce
   useEffect(() => {
@@ -491,9 +509,14 @@ export const ChatProvider = ({ children }) => {
     return () => clearTimeout(timer);
   }, [searchQuery, searchChats]);
 
+  // Добавляем алиасы для совместимости с Sidebar
+  const userChats = chats; // Алиас для совместимости
+  const loadUserChats = loadChats; // Алиас для совместимости
+
   const value = {
     // States
     chats,
+    userChats, // Добавлен алиас
     currentChat,
     messages,
     isIncognito,
@@ -510,6 +533,7 @@ export const ChatProvider = ({ children }) => {
 
     // Actions
     loadChats,
+    loadUserChats, // Добавлен алиас
     loadMoreChats,
     createNewChat,
     loadChatHistory,
