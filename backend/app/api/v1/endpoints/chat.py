@@ -30,43 +30,84 @@ async def send_message(
 ):
     """Send a message to the chat and get a response."""
     try:
-        # Create new chat if needed - БЕЗ await
-        if not request.chat_id:
-            request.chat_id = chat_manager.create_chat(   
-                user_id=current_user.id,
-                first_message=request.message,
-                is_incognito=request.is_incognito
+        # Проверяем режим incognito
+        if request.is_incognito:
+            # Для incognito используем отрицательные ID
+            if not request.chat_id or request.chat_id > 0:
+                # Создаем новый incognito чат с отрицательным ID
+                request.chat_id = chat_manager.create_chat(   
+                    user_id=current_user.id,
+                    title="Incognito Chat",
+                    is_incognito=True  # Это создаст отрицательный ID
+                )
+            
+            # Добавляем сообщение в память (НЕ в БД)
+            chat_manager.add_message(  
+                chat_id=request.chat_id,
+                role="user",
+                content=request.message
+            )
+            
+            # Получаем ответ AI
+            response = await chat_service.get_response(
+                message=request.message,
+                data_source=request.data_source,
+                user_id=current_user.id
+            )
+            
+            # Добавляем ответ в память (НЕ в БД)
+            message_id = chat_manager.add_message(  
+                chat_id=request.chat_id,
+                role="assistant",
+                content=response["response"],
+                metadata={"sources": response.get("sources")}
+            )
+            
+            return ChatResponse(
+                response=response["response"],
+                chat_id=request.chat_id,  # Возвращаем отрицательный ID
+                message_id=message_id,
+                is_incognito=True,
+                sources=response.get("sources")
             )
         
-        # Add user message to history - БЕЗ await
-        chat_manager.add_message(  
-            chat_id=request.chat_id,
-            role="user",
-            content=request.message
-        )
-        
-        # Get AI response - ОСТАВЛЯЕМ await (это async метод)
-        response = await chat_service.get_response(  # ✅ await остается
-            message=request.message,
-            data_source=request.data_source,
-            user_id=current_user.id
-        )
-        
-        # Add assistant message to history - БЕЗ await
-        message_id = chat_manager.add_message(  
-            chat_id=request.chat_id,
-            role="assistant",
-            content=response["response"],
-            metadata={"sources": response.get("sources")}
-        )
-        
-        return ChatResponse(
-            response=response["response"],
-            chat_id=request.chat_id if not request.is_incognito else None,
-            message_id=message_id,
-            is_incognito=request.is_incognito,
-            sources=response.get("sources")
-        )
+        # Обычный режим - сохраняем в БД
+        else:
+            if not request.chat_id:
+                request.chat_id = chat_manager.create_chat(   
+                    user_id=current_user.id,
+                    first_message=request.message,
+                    is_incognito=False  # Обычный чат с положительным ID
+                )
+            
+            # Сохраняем в БД
+            chat_manager.add_message(  
+                chat_id=request.chat_id,
+                role="user",
+                content=request.message
+            )
+            
+            response = await chat_service.get_response(
+                message=request.message,
+                data_source=request.data_source,
+                user_id=current_user.id
+            )
+            
+            # Сохраняем в БД
+            message_id = chat_manager.add_message(  
+                chat_id=request.chat_id,
+                role="assistant",
+                content=response["response"],
+                metadata={"sources": response.get("sources")}
+            )
+            
+            return ChatResponse(
+                response=response["response"],
+                chat_id=request.chat_id,
+                message_id=message_id,
+                is_incognito=False,
+                sources=response.get("sources")
+            )
         
     except Exception as e:
         logger.error(f"Error processing chat message: {str(e)}")
@@ -76,20 +117,27 @@ async def send_message(
 async def get_chat_sessions(
     current_user: User = Depends(get_current_user),
     include_archived: bool = False,
-    include_incognito: bool = False,
+    include_incognito: bool = False,  # По умолчанию НЕ показываем incognito
     page: int = 1,
     page_size: int = 20
 ):
     """Get user's chat sessions."""
     try:
-        # БЕЗ await
         result = chat_manager.get_user_chats(  
             user_id=current_user.id,
             include_archived=include_archived,
-            include_incognito=include_incognito,
+            include_incognito=include_incognito,  # Передаем флаг
             page=page,
             page_size=page_size
         )
+        
+        # Дополнительная фильтрация на всякий случай
+        if not include_incognito:
+            # Убираем чаты с отрицательными ID и флагом is_incognito
+            result["chats"] = [
+                chat for chat in result["chats"] 
+                if chat.get("id", 0) > 0 and not chat.get("is_incognito", False)
+            ]
         
         return ChatListResponse(**result)
     except Exception as e:
@@ -112,13 +160,16 @@ async def get_chat_history(
             offset=offset
         )
         
-        # Добавляем user_id в данные чата и считаем количество сообщений
         chat_data = result["chat"]
-        chat_data["user_id"] = current_user.id  # Добавляем user_id
+        chat_data["user_id"] = current_user.id
+        
+        # Проверяем, что это incognito чат
+        if chat_id < 0:
+            chat_data["is_incognito"] = True
         
         messages = []
         for msg in result["messages"]:
-            msg["chat_id"] = chat_id  # ← Добавляем chat_id
+            msg["chat_id"] = chat_id
             messages.append(msg)
         
         return ChatHistoryResponse(
@@ -141,14 +192,13 @@ async def create_chat_session(
 ):
     """Create a new chat session."""
     try:
-        # БЕЗ await
         chat_id = chat_manager.create_chat(  
             user_id=current_user.id,
-            title=title,
+            title=title or ("Incognito Chat" if is_incognito else "New Chat"),
             is_incognito=is_incognito
         )
         
-        return {"chat_id": chat_id}
+        return {"chat_id": chat_id, "is_incognito": is_incognito}
     except Exception as e:
         logger.error(f"Error creating chat session: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -159,8 +209,7 @@ async def get_chat_mode_status(
 ):
     """Get chat mode status."""
     try:
-        # БЕЗ await
-        status = chat_manager.get_chat_mode_status(  
+        status = chat_manager.get_chat_mode_status(
             user_id=current_user.id
         )
         
@@ -175,8 +224,7 @@ async def clear_incognito_chats(
 ):
     """Clear all incognito chats for the current user."""
     try:
-        # БЕЗ await
-        cleared_count = chat_manager.clear_incognito_chats(  # ❌ убрали await
+        cleared_count = chat_manager.clear_incognito_chats(
             user_id=current_user.id
         )
         
@@ -193,7 +241,13 @@ async def update_chat_session(
 ):
     """Update chat session."""
     try:
-        # БЕЗ await
+        # Запрещаем обновление incognito чатов
+        if chat_id < 0:
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot update incognito chat - it's temporary"
+            )
+        
         success = chat_manager.update_chat(  
             chat_id=chat_id,
             user_id=current_user.id,
@@ -205,6 +259,8 @@ async def update_chat_session(
             raise HTTPException(status_code=404, detail="Chat not found")
         
         return {"message": "Chat updated successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error updating chat session: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -216,8 +272,13 @@ async def delete_chat_session(
 ):
     """Delete chat session."""
     try:
-        # БЕЗ await
-        success = chat_manager.delete_chat(  # ❌ убрали await
+        # Для incognito чатов - удаляем из памяти
+        if chat_id < 0:
+            chat_manager.clear_incognito_chats(user_id=current_user.id)
+            return {"message": "Incognito chat cleared from memory"}
+        
+        # Для обычных чатов - удаляем из БД
+        success = chat_manager.delete_chat(
             chat_id=chat_id,
             user_id=current_user.id
         )
@@ -237,13 +298,19 @@ async def search_chats(
 ):
     """Search in user's chats."""
     try:
-        # БЕЗ await
         results = chat_manager.search_chats(  
             user_id=current_user.id,
             query=request.query,
             include_archived=request.include_archived,
             limit=request.limit
         )
+        
+        # Фильтруем incognito чаты из результатов поиска
+        # Они не должны появляться в поиске
+        results = [
+            r for r in results 
+            if r.get("id", 0) > 0 and not r.get("is_incognito", False)
+        ]
         
         return results
     except Exception as e:
