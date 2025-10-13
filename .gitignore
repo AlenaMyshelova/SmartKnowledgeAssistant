@@ -7,3 +7,11 @@ data/*.db
 .DS_Store
 dist/
 build/
+
+*.sqlite
+*.sqlite3
+
+ 
+backend/data/indexes/*.data
+backend/data/indexes/*.index
+/data

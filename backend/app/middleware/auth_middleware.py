@@ -36,6 +36,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
             # Временно для отладки
             r"^/api/v1/data-sources$",
+
+            r"^/api/v1/speech/.*$",
         ]
         # Компилируем регулярные выражения
         self.compiled_patterns = [re.compile(pattern) for pattern in self.public_paths]

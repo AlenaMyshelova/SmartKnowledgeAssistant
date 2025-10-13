@@ -54,18 +54,19 @@ class OAuthProvider:
         redirect_uri: str,
         code_verifier: Optional[str] = None,
     ) -> str:
-        """
-        Обмен авторизационного кода на access token.
-        Поддерживает PKCE: при наличии code_verifier — добавляем его в запрос.
-        Возвращает строку access_token.
-        """
+        """Exchange authorization code for access token."""
+        print(f"[OAUTH] Exchanging code for token")
+        print(f"[OAUTH] Provider: {self.name}")
+        print(f"[OAUTH] Redirect URI: {redirect_uri}")
+        
         data = {
             "client_id": self.client_id,
-            "client_secret": self.client_secret,  # у публичных приложений может отсутствовать
+            "client_secret": self.client_secret,
             "code": code,
             "grant_type": "authorization_code",
             "redirect_uri": redirect_uri,
         }
+        
         if code_verifier:
             data["code_verifier"] = code_verifier
 
@@ -76,24 +77,40 @@ class OAuthProvider:
 
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             try:
-                resp = await client.post(self.config["token_url"], data=data, headers=headers)
+                resp = await client.post(
+                    self.config["token_url"], 
+                    data=data, 
+                    headers=headers
+                )
+                print(f"[OAUTH] Token exchange response status: {resp.status_code}")
+                
+                if resp.status_code != 200:
+                    print(f"[OAUTH ERROR] Token exchange failed")
+                    print(f"[OAUTH ERROR] Response: {resp.text}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Failed to exchange code for token: {resp.text}"
+                    )
+                    
             except httpx.RequestError as e:
-                logger.error("OAuth token exchange request failed (%s): %s", self.name, e)
-                raise HTTPException(status_code=502, detail="Failed to connect to OAuth provider")
-
-        if resp.status_code != 200:
-            logger.error(
-                "OAuth token exchange failed for %s: %s %s",
-                self.name, resp.status_code, resp.text
-            )
-            raise HTTPException(status_code=400, detail="Failed to exchange code for token")
+                print(f"[OAUTH ERROR] Request failed: {e}")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Failed to connect to {self.name}"
+                )
 
         token_data = resp.json()
+        print(f"[OAUTH] Token data keys: {list(token_data.keys())}")
+        
         access_token = token_data.get("access_token")
         if not access_token:
-            logger.error("No access_token in token response for %s: %s", self.name, token_data)
-            raise HTTPException(status_code=400, detail="Provider did not return access_token")
-
+            print(f"[OAUTH ERROR] No access token in response")
+            raise HTTPException(
+                status_code=400,
+                detail="No access token received"
+            )
+        
+        print(f"[OAUTH] Successfully got access token")
         return access_token
 
     async def get_user_info(self, access_token: str) -> Dict[str, Any]:
@@ -107,6 +124,29 @@ class GoogleOAuth(OAuthProvider):
     def __init__(self, provider_config: Dict[str, Any]):
         super().__init__(provider_config)
         self.name = "google"
+
+    def get_authorization_url(
+        self,
+        redirect_uri: str,
+        state: str,
+        extra_params: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """
+        Формирование URL для авторизации Google с параметром выбора аккаунта.
+        """
+        # Добавляем параметры специфичные для Google
+        google_params = {
+            "access_type": "offline",  # Для получения refresh token
+            "prompt": "select_account",  # ВАЖНО: Всегда показывать страницу выбора аккаунта
+            "include_granted_scopes": "true",  # Включить все разрешенные scope
+        }
+        
+        # Если переданы дополнительные параметры, добавляем их
+        if extra_params:
+            google_params.update(extra_params)
+            
+        # Вызываем родительский метод с параметрами Google
+        return super().get_authorization_url(redirect_uri, state, google_params)
 
     async def get_user_info(self, access_token: str) -> Dict[str, Any]:
         """
@@ -134,8 +174,6 @@ class GoogleOAuth(OAuthProvider):
             "provider": "google",
             "provider_data": user_data,
         }
-
-
 class GitHubOAuth(OAuthProvider):
     """GitHub OAuth провайдер."""
 

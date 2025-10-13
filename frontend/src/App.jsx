@@ -1,97 +1,77 @@
-import { useState, useEffect } from "react";
+import React from "react";
+import { ThemeProvider, createTheme, CssBaseline } from "@mui/material";
 import {
-  CssBaseline,
-  ThemeProvider,
-  createTheme,
-  AppBar,
-  Toolbar,
-  Typography,
-  Container,
-  Box,
-  CircularProgress,
-} from "@mui/material";
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+} from "react-router-dom";
+import { SnackbarProvider } from "notistack";
+import Login from "./components/auth/Login";
+import ProtectedRoute from "./components/auth/ProtectedRoute";
+import MainLayout from "./components/layout/MainLayout";
 import ChatInterface from "./components/chat/ChatInterface";
-import { chatApi } from "./services/api";
-import SmartToyIcon from "@mui/icons-material/SmartToy";
+import { AuthProvider } from "./contexts/AuthContext";
+import { ChatProvider } from "./contexts/ChatContext";
 
-// Создаем тему Material UI
 const theme = createTheme({
   palette: {
+    mode: "light",
     primary: {
-      main: "#1976d2",
+      main: "#10a37f",
+      dark: "#0d8f6f",
+      light: "#42b899",
     },
     secondary: {
-      main: "#9c27b0",
+      main: "#666",
     },
+    background: {
+      default: "#f7f7f8",
+      paper: "#ffffff",
+    },
+  },
+  typography: {
+    fontFamily: '"Inter", "SF Pro Display", -apple-system, sans-serif',
+  },
+  shape: {
+    borderRadius: 8,
   },
 });
 
 function App() {
-  const [apiStatus, setApiStatus] = useState("checking");
-
-  // Проверяем доступность API при загрузке
-  useEffect(() => {
-    const checkApiStatus = async () => {
-      try {
-        await chatApi.healthCheck();
-        setApiStatus("online");
-      } catch (error) {
-        console.error("API health check failed:", error);
-        setApiStatus("offline");
-      }
-    };
-
-    checkApiStatus();
-  }, []);
-
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      <SnackbarProvider
+        maxSnack={3}
+        anchorOrigin={{
+          vertical: "bottom",
+          horizontal: "left",
+        }}
+      >
+        <Router>
+          <AuthProvider>
+            <Routes>
+              <Route path="/login" element={<Login />} />
 
-      {/* Шапка приложения */}
-      <AppBar position="static" color="primary">
-        <Toolbar>
-          <SmartToyIcon sx={{ mr: 2 }} />
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            TechNova Knowledge Assistant
-          </Typography>
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              backgroundColor:
-                apiStatus === "online" ? "success.main" : "error.main",
-              color: "white",
-              borderRadius: 1,
-              px: 1,
-              py: 0.5,
-              fontSize: "0.75rem",
-            }}
-          >
-            API:{" "}
-            {apiStatus === "checking" ? (
-              <CircularProgress size={14} color="inherit" sx={{ ml: 1 }} />
-            ) : (
-              apiStatus
-            )}
-          </Box>
-        </Toolbar>
-      </AppBar>
-
-      <Container>
-        {apiStatus === "offline" ? (
-          <Box sx={{ mt: 4, textAlign: "center" }}>
-            <Typography variant="h5" color="error" gutterBottom>
-              API недоступен
-            </Typography>
-            <Typography>
-              Пожалуйста, убедитесь, что бэкенд запущен на http://localhost:8001
-            </Typography>
-          </Box>
-        ) : (
-          <ChatInterface />
-        )}
-      </Container>
+              {/* Protected routes with Outlet pattern */}
+              <Route element={<ProtectedRoute />}>
+                <Route path="/" element={<Navigate to="/chat" replace />} />
+                <Route
+                  element={
+                    <ChatProvider>
+                      <MainLayout />
+                    </ChatProvider>
+                  }
+                >
+                  <Route path="/chat" element={<ChatInterface />} />
+                  <Route path="/chat/:chatId" element={<ChatInterface />} />
+                </Route>
+              </Route>
+            </Routes>
+          </AuthProvider>
+        </Router>
+      </SnackbarProvider>
     </ThemeProvider>
   );
 }

@@ -11,9 +11,9 @@ class OpenAIService:
     def __init__(self):
         self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
     
-    async def generate_chat_response(
+    async def generate_response(
         self, 
-        user_message: str, 
+        query: str, 
         context: str = "", 
         scarcity_note: str = ""
     ) -> str:
@@ -33,7 +33,7 @@ class OpenAIService:
             system_prompt = self._build_system_prompt()
             
             # Пользовательский промпт с контекстом
-            user_prompt = self._build_user_prompt(user_message, context, scarcity_note)
+            user_prompt = self._build_user_prompt(query, context, scarcity_note)
             
             # Запрос к OpenAI
             response = self.client.chat.completions.create(
@@ -65,7 +65,7 @@ class OpenAIService:
         - If you use specific company data, mention which sections you referenced
         - Always try to be as accurate as possible"""
     
-    def _build_user_prompt(self, user_message: str, context: str, scarcity_note: str) -> str:
+    def _build_user_prompt(self, query: str, context: str, scarcity_note: str) -> str:
         """Создание пользовательского промпта с контекстом."""
         prompt_parts = []
         
@@ -74,7 +74,7 @@ class OpenAIService:
             prompt_parts.append(context)
             prompt_parts.append("---")
         
-        prompt_parts.append(f"User question: {user_message}")
+        prompt_parts.append(f"User question: {query}")
         
         if scarcity_note:
             prompt_parts.append(scarcity_note)

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from asyncio.log import logger
 from typing import Optional
 from datetime import timedelta, datetime
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, Query
 from fastapi.responses import RedirectResponse
 
 from app.core.config import settings
@@ -13,6 +14,9 @@ from app.auth.deps import get_current_user
 from app.auth.jwt import create_access_token, decode_access_token
 from app.auth.oauth import get_oauth_provider
 from app.models.user import User, UserCreate
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["auth"]) 
 
@@ -26,9 +30,12 @@ def _set_tmp_cookie(response: Response, key: str, value: str) -> None:
         key=key,
         value=value,
         httponly=True,
-        secure=not settings.DEBUG,
-        samesite="lax",
+        # secure=not settings.DEBUG,
+        secure=False, 
+        samesite="lax",   
         max_age=OAUTH_TMP_COOKIE_MAX_AGE,
+        path="/", 
+        domain=None
     )
 
 
@@ -48,59 +55,81 @@ async def login_oauth(
     response: Response,
     redirect_uri: Optional[str] = None,
 ):
-    """
-    Инициализация OAuth-авторизации:
-    - Проверяем, что провайдер настроен.
-    - Генерируем state и сохраняем в httpOnly cookie.
-    - Сохраняем желаемый redirect фронта в cookie.
-    - Возвращаем URL авторизации (клиент делает redirect сам).
-    """
+    """Инициализация OAuth-авторизации с прямым редиректом."""
+    
     if provider not in settings.OAUTH_PROVIDERS:
-        raise HTTPException(status_code=400, detail="Провайдер не поддерживается")
+        # Для ошибок возвращаем на страницу логина
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/login?error=Unknown%20provider"
+        )
 
     provider_cfg = settings.OAUTH_PROVIDERS[provider]
     provider_redirect_uri = provider_cfg["redirect_uri"]
 
-    # 1) state в cookie
+    # Генерируем state
     state = secrets.token_urlsafe(32)
-    _set_tmp_cookie(response, "oauth_state", state)
-
-    # 2) конечный адрес возврата на фронт (куда редиректить после успешного входа)
-    final_redirect = redirect_uri or f"{settings.FRONTEND_URL}/auth/callback"
-    _set_tmp_cookie(response, "oauth_redirect", final_redirect)
-
-    # 3) URL авторизации у провайдера
+    
+    # URL авторизации у провайдера
     oauth_provider = get_oauth_provider(provider)
     auth_url = oauth_provider.get_authorization_url(
         redirect_uri=provider_redirect_uri,
         state=state,
     )
-
-    # Возвращаем JSON (фронтенд сам сделает window.location = auth_url)
-    return {"auth_url": auth_url, "state": state}
+    
+    # Создаем response с редиректом
+    resp = RedirectResponse(url=auth_url)
+    
+    # Устанавливаем cookies
+    _set_tmp_cookie(resp, "oauth_state", state)
+    final_redirect = redirect_uri or f"{settings.FRONTEND_URL}/auth/callback"
+    _set_tmp_cookie(resp, "oauth_redirect", final_redirect)
+    
+    return resp  # Возвращаем редирект, а не JSON
 
 
 @router.get("/{provider}/callback")
 async def oauth_callback(
-    request: Request,
     provider: str,
-    code: str,
-    state: Optional[str] = None,
+    request: Request,
+    response: Response,
+    code: str = Query(None),
+    state: str = Query(None),
+    error: str = Query(None),
 ):
-    """
-    Callback от провайдера:
-    - Валидируем state (сверяем с cookie).
-    - Обмениваем code на access_token у провайдера.
-    - Получаем userinfo у провайдера.
-    - Ищем/создаём пользователя в локальной БД.
-    - Генерируем наш access JWT, кладём в httpOnly cookie и редиректим на фронт.
-    """
+    """Callback для OAuth провайдеров после авторизации."""
+    
+    # Добавьте логирование для отладки
+    print(f"[OAUTH CALLBACK] Provider: {provider}")
+    print(f"[OAUTH CALLBACK] Code present: {bool(code)}")
+    print(f"[OAUTH CALLBACK] State present: {bool(state)}")
+    print(f"[OAUTH CALLBACK] Error: {error}")
+    print(f"[OAUTH CALLBACK] Cookies: {request.cookies}")
+    
+    # Проверка на ошибку от провайдера
+    if error:
+        logger.warning(f"OAuth error from {provider}: {error}")
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/login?error={error}"
+        )
+    
+    # Проверка наличия code и state
+    if not code or not state:
+        error_msg = "Missing code or state parameter"
+        print(f"[OAUTH CALLBACK ERROR] {error_msg}")
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/login?error={error_msg}"
+        )
     try:
         if provider not in settings.OAUTH_PROVIDERS:
             raise HTTPException(status_code=400, detail="Провайдер не поддерживается")
 
         cookie_state = request.cookies.get("oauth_state")
+        print(f"[OAUTH CALLBACK] Cookie state: {cookie_state[:10] + '...' if cookie_state else 'None'}")
+        print(f"[OAUTH CALLBACK] State match: {state == cookie_state}")
         if not state or not cookie_state or state != cookie_state:
+            print(f"[OAUTH CALLBACK ERROR] State mismatch!")
+            print(f"[OAUTH CALLBACK ERROR] Expected: {cookie_state}")
+            print(f"[OAUTH CALLBACK ERROR] Received: {state}")
             raise HTTPException(status_code=400, detail="Недействительный параметр state")
 
         frontend_redirect = request.cookies.get("oauth_redirect") or f"{settings.FRONTEND_URL}/auth/callback"
@@ -109,7 +138,9 @@ async def oauth_callback(
         provider_redirect_uri = provider_cfg["redirect_uri"]
 
         oauth_provider = get_oauth_provider(provider)
-
+        print(f"[OAUTH CALLBACK] Starting token exchange...")
+        print(f"[OAUTH CALLBACK] Code: {code[:20]}...")
+        print(f"[OAUTH CALLBACK] Provider redirect URI: {provider_redirect_uri}")
         # Обмен кода на токен у провайдера
         access_token = await oauth_provider.exchange_code_for_token(
             code,
@@ -150,7 +181,8 @@ async def oauth_callback(
             data=payload,
             expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
         )
-
+        print(f"[AUTH] User {user.email} authenticated successfully")
+        print(f"[AUTH] Redirecting to: {frontend_redirect}")
         # Редиректим на фронт + ставим JWT в httpOnly cookie
         redirect_url = f"{frontend_redirect}?token={jwt_token}"
         resp = RedirectResponse(redirect_url)
@@ -172,8 +204,14 @@ async def oauth_callback(
     except HTTPException:
         raise
     except Exception as e:
-        # На фронт со смысловой ошибкой
-        error_url = f"{settings.FRONTEND_URL}/login?error={str(e)}"
+        # Log the error for debugging
+        import traceback
+        print(f"[AUTH ERROR] OAuth callback failed: {str(e)}")
+        print(traceback.format_exc())
+        
+        # Redirect to frontend with error message
+        error_msg = "Authentication failed. Please try again."
+        error_url = f"{settings.FRONTEND_URL}/login?error={error_msg}"
         return RedirectResponse(error_url)
 
 

@@ -37,10 +37,10 @@ const MessageList = ({ messages, loading }) => {
           }}
         >
           <Typography variant="h6" color="textSecondary" align="center">
-            Hi! Я Smart Knowledge Assistant.
+            Hi! I'm Smart Knowledge Assistant.
           </Typography>
           <Typography variant="body1" color="textSecondary" align="center">
-            Задайте мне вопрос о компании TechNova.
+            Ask me questions about TechNova.
           </Typography>
         </Box>
       )}
