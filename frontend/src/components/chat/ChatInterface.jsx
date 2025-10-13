@@ -371,10 +371,10 @@ const ChatInterface = () => {
               }}
             >
               {[
-                "What is our vacation policy?",
-                "How do I submit an expense report?",
-                "Tell me about company benefits",
-                "What are the working hours?",
+                "What products does TechNova offer?",
+                "How do I reset my NovaCRM password?",
+                "How much is the NovaDocs Pro plan?",
+                "Does NovaMeet have mobile apps?",
               ].map((prompt) => (
                 <Chip
                   key={prompt}

@@ -609,7 +609,7 @@ const Sidebar = ({ onClose }) => {
         )}
 
         {/* Deleted Chats Notice */}
-        {deletedChats.length > 0 && (
+        {/* {deletedChats.length > 0 && (
           <Alert
             severity="info"
             sx={{ m: 2 }}
@@ -626,7 +626,7 @@ const Sidebar = ({ onClose }) => {
           >
             {deletedChats.length} chat(s) pending deletion
           </Alert>
-        )}
+        )} */}
       </Box>
 
       <Divider sx={{ borderColor: alpha("#fff", 0.1) }} />
