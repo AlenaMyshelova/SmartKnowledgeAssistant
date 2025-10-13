@@ -28,7 +28,7 @@ export const ChatProvider = ({ children }) => {
   const [isIncognito, setIsIncognito] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
+  const [deleteTimers, setDeleteTimers] = useState({});
   // Pagination states
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(1);
@@ -376,15 +376,16 @@ export const ChatProvider = ({ children }) => {
     });
   }, [loadChats]);
 
-  // ... остальные методы остаются без изменений ...
-
   // Delete chat
   const deleteChat = useCallback(
     async (chatId) => {
       const chatToDelete = chats.find((c) => c.id === chatId);
-      if (!chatToDelete) return;
+      if (!chatToDelete) return null;
 
+      // Сразу удаляем из UI
       setChats((prev) => prev.filter((c) => c.id !== chatId));
+
+      // Добавляем в список удаленных
       setDeletedChats((prev) => [...prev, chatToDelete]);
 
       if (currentChat?.id === chatId) {
@@ -392,38 +393,99 @@ export const ChatProvider = ({ children }) => {
         setMessages([]);
       }
 
-      setTimeout(async () => {
-        try {
-          await apiCall(`/chat/sessions/${chatId}`, {
-            method: "DELETE",
-          });
-          setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
-        } catch (err) {
-          setChats((prev) => [...prev, chatToDelete]);
-          setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
-          console.error("Error deleting chat:", err);
-        }
-      }, 5000);
+      // Создаем таймер для отложенного удаления
+      const timer = setTimeout(async () => {
+        // Проверяем, не был ли чат восстановлен
+        setDeletedChats((currentDeleted) => {
+          const stillDeleted = currentDeleted.find((c) => c.id === chatId);
+
+          // Если чат все еще в списке удаленных - удаляем с сервера
+          if (stillDeleted) {
+            apiCall(`/chat/sessions/${chatId}`, {
+              method: "DELETE",
+            })
+              .then(() => {
+                // После успешного удаления убираем из deletedChats
+                setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
+                // Удаляем таймер из хранилища
+                setDeleteTimers((prev) => {
+                  const newTimers = { ...prev };
+                  delete newTimers[chatId];
+                  return newTimers;
+                });
+              })
+              .catch((err) => {
+                // При ошибке восстанавливаем чат
+                setChats((prev) => {
+                  if (!prev.find((c) => c.id === chatId)) {
+                    return [...prev, chatToDelete].sort(
+                      (a, b) => new Date(b.updated_at) - new Date(a.updated_at)
+                    );
+                  }
+                  return prev;
+                });
+                setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
+                console.error("Error deleting chat:", err);
+
+                if (window.enqueueSnackbar) {
+                  window.enqueueSnackbar("Failed to delete chat", {
+                    variant: "error",
+                  });
+                }
+              });
+          }
+
+          return currentDeleted;
+        });
+      }, 5000); // 5 секунд на undo
+
+      // Сохраняем таймер
+      setDeleteTimers((prev) => ({ ...prev, [chatId]: timer }));
 
       return chatToDelete;
     },
     [chats, currentChat, token]
   );
 
+  // Undo delete - ИСПРАВЛЕННАЯ ВЕРСИЯ
   const undoDelete = useCallback(
     (chatId) => {
       const chatToRestore = deletedChats.find((c) => c.id === chatId);
       if (!chatToRestore) return;
 
-      setChats((prev) =>
-        [...prev, chatToRestore].sort(
+      // Отменяем таймер удаления
+      if (deleteTimers[chatId]) {
+        clearTimeout(deleteTimers[chatId]);
+        setDeleteTimers((prev) => {
+          const newTimers = { ...prev };
+          delete newTimers[chatId];
+          return newTimers;
+        });
+      }
+
+      // Восстанавливаем чат в список
+      setChats((prev) => {
+        if (prev.find((c) => c.id === chatId)) {
+          return prev;
+        }
+        return [...prev, chatToRestore].sort(
           (a, b) => new Date(b.updated_at) - new Date(a.updated_at)
-        )
-      );
+        );
+      });
+
+      // Удаляем из списка удаленных
       setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
     },
-    [deletedChats]
+    [deletedChats, deleteTimers]
   );
+
+  // Очистка таймеров при размонтировании
+  useEffect(() => {
+    return () => {
+      // Очищаем все таймеры при размонтировании компонента
+      Object.values(deleteTimers).forEach((timer) => clearTimeout(timer));
+    };
+  }, [deleteTimers]);
 
   const updateChat = useCallback(
     async (chatId, updates) => {
