@@ -196,6 +196,7 @@ class ChatManager:
                 chats.append({
                     "id": row["id"],
                     "title": row["title"] or "New Chat",
+                    "user_id": user_id,
                     "created_at": row["created_at"],
                     "updated_at": row["updated_at"],
                     "is_archived": bool(row["is_archived"]) if row["is_archived"] is not None else False,
@@ -222,6 +223,7 @@ class ChatManager:
                     chats.append({
                         "id": cid,
                         "title": data["title"],
+                        "user_id": user_id,
                         "created_at": data["created_at"],
                         "updated_at": data["updated_at"],
                         "is_archived": False,
@@ -245,6 +247,7 @@ class ChatManager:
             return {
                 "chat": {
                     "id": chat_id,
+                    "user_id": user_id, 
                     "title": chat["title"],
                     "created_at": chat["created_at"],
                     "updated_at": chat["updated_at"],
@@ -265,6 +268,7 @@ class ChatManager:
 
             chat_info = {
                 "id": row["id"],
+                "user_id": user_id, 
                 "title": row["title"] or "New Chat",
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
