@@ -54,11 +54,25 @@ const ChatInterface = () => {
 
   useEffect(() => {
     if (chatId) {
-      loadChatHistory(chatId);
+      const parsedChatId = parseInt(chatId);
+      // Загружаем историю только если это другой чат
+      if (!currentChat || currentChat.id !== parsedChatId) {
+        console.log("Loading chat history for:", parsedChatId);
+        loadChatHistory(parsedChatId);
+      }
     } else {
-      setMessages([]);
+      // Если мы на /chat без ID
+      if (currentChat && currentChat.id > 0 && !isIncognito) {
+        // Есть текущий чат - переходим на него
+        console.log("Redirecting to current chat:", currentChat.id);
+        navigate(`/chat/${currentChat.id}`, { replace: true });
+      } else {
+        // Нет текущего чата - очищаем сообщения
+        console.log("Clearing messages - no current chat");
+        setMessages([]);
+      }
     }
-  }, [chatId]);
+  }, [chatId]); // ВАЖНО: убираем лишние зависимости!
 
   useEffect(() => {
     scrollToBottom();
@@ -72,14 +86,7 @@ const ChatInterface = () => {
     setIsSending(true);
 
     try {
-      let activeChatId = chatId;
-
-      // Create new chat if needed
-      if (!activeChatId) {
-        activeChatId = await createNewChat();
-        navigate(`/chat/${activeChatId}`);
-      }
-
+      // НЕ создаем новый чат здесь - sendMessage сделает это сам
       await sendMessage(message, dataSource);
 
       if (isIncognito) {
