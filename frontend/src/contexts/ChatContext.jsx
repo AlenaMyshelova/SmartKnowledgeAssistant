@@ -5,6 +5,7 @@ import React, {
   useCallback,
   useEffect,
 } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { chatApi } from "../services/api";
 
@@ -20,7 +21,7 @@ export const useChat = () => {
 
 export const ChatProvider = ({ children }) => {
   const { token, user, isAuthenticated } = useAuth();
-
+  const navigate = useNavigate();
   // Chat states
   const [chats, setChats] = useState([]);
   const [currentChat, setCurrentChat] = useState(null);
@@ -80,7 +81,7 @@ export const ChatProvider = ({ children }) => {
         const params = new URLSearchParams({
           page: pageNum,
           page_size: 20,
-          include_incognito: "false", // ← ВСЕГДА false!
+          include_incognito: "false",
         });
 
         const data = await apiCall(`/chat/sessions?${params}`);
@@ -280,7 +281,7 @@ export const ChatProvider = ({ children }) => {
 
           // Если создан новый чат, переходим на его URL
           if (window.location.pathname === "/chat") {
-            window.history.pushState({}, "", `/chat/${data.chat_id}`);
+            navigate(`/chat/${data.chat_id}`, { replace: true });
           }
         }
 
@@ -329,9 +330,9 @@ export const ChatProvider = ({ children }) => {
         }
 
         // Перезагружаем список только для НЕ incognito
-        if (!isIncognito) {
-          loadChats(1);
-        }
+        // if (!isIncognito) {
+        //   loadChats(1);
+        // }
 
         return data;
       } catch (err) {
@@ -350,7 +351,7 @@ export const ChatProvider = ({ children }) => {
         throw err;
       }
     },
-    [currentChat, isIncognito, loadChats]
+    [currentChat, isIncognito, loadChats, navigate]
   );
 
   // Toggle incognito mode
