@@ -417,7 +417,7 @@ const ChatInterface = () => {
       >
         <MessageInput
           onSendMessage={handleSendMessage}
-          dataSources={["company_faqs", "hr_policies", "it_documentation"]}
+          dataSources={["company_faqs"]}
         />
       </Paper>
     </Box>
