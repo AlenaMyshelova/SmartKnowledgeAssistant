@@ -123,9 +123,13 @@ export const ChatProvider = ({ children }) => {
   }, [loading, hasMore, page, loadChats]);
 
   // Create new chat
+
   const createNewChat = useCallback(
     async (title = null) => {
       try {
+        // Очищаем сообщения перед созданием нового чата
+        setMessages([]);
+
         const data = await apiCall("/chat/sessions", {
           method: "POST",
           body: JSON.stringify({
@@ -151,6 +155,7 @@ export const ChatProvider = ({ children }) => {
         }
 
         setCurrentChat(newChat);
+        setMessages([]); // Убеждаемся, что сообщения пустые
 
         return data.chat_id;
       } catch (err) {
