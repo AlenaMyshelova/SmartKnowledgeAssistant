@@ -317,6 +317,11 @@ class ChatManager:
                 return False
             sets.append("updated_at = CURRENT_TIMESTAMP")
             q = f"UPDATE chat_sessions SET {', '.join(sets)} WHERE id = ? AND user_id = ?"
+            params.extend([chat_id, user_id])   
+            cur.execute(q, params)
+            success = cur.rowcount > 0
+            conn.commit()
+            return success
 
 
     def delete_chat(self, chat_id: int, user_id: int) -> bool:

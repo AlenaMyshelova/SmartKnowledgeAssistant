@@ -43,8 +43,6 @@ import {
   ChatBubbleOutline as ChatIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
-  PushPin as PinIcon,
-  PushPinOutlined as UnpinIcon,
   MoreVert as MoreIcon,
   Today as TodayIcon,
   DateRange as DateRangeIcon,
@@ -201,14 +199,6 @@ const Sidebar = ({ onClose }) => {
     }
   };
 
-  const handlePinChat = async (chat) => {
-    await updateChat(chat.id, { is_pinned: !chat.is_pinned });
-    handleCloseMenu();
-    enqueueSnackbar(chat.is_pinned ? "Chat unpinned" : "Chat pinned", {
-      variant: "success",
-    });
-  };
-
   const handleNewChat = async () => {
     const newChatId = await createNewChat();
     navigate(`/chat/${newChatId}`);
@@ -258,7 +248,6 @@ const Sidebar = ({ onClose }) => {
   // Group chats by date - используем отфильтрованные чаты
   const groupChats = (chatList) => {
     const groups = {
-      pinned: [],
       today: [],
       yesterday: [],
       week: [],
@@ -266,23 +255,19 @@ const Sidebar = ({ onClose }) => {
     };
 
     chatList.forEach((chat) => {
-      if (chat.is_pinned) {
-        groups.pinned.push(chat);
-      } else {
-        try {
-          const date = parseISO(chat.updated_at);
-          if (isToday(date)) {
-            groups.today.push(chat);
-          } else if (isYesterday(date)) {
-            groups.yesterday.push(chat);
-          } else if (isThisWeek(date, { weekStartsOn: 1 })) {
-            groups.week.push(chat);
-          } else {
-            groups.older.push(chat);
-          }
-        } catch {
+      try {
+        const date = parseISO(chat.updated_at);
+        if (isToday(date)) {
+          groups.today.push(chat);
+        } else if (isYesterday(date)) {
+          groups.yesterday.push(chat);
+        } else if (isThisWeek(date, { weekStartsOn: 1 })) {
+          groups.week.push(chat);
+        } else {
           groups.older.push(chat);
         }
+      } catch {
+        groups.older.push(chat);
       }
     });
 
@@ -364,9 +349,6 @@ const Sidebar = ({ onClose }) => {
                         <Typography variant="body2" noWrap sx={{ flex: 1 }}>
                           {chat.title}
                         </Typography>
-                        {chat.is_pinned && (
-                          <PinIcon fontSize="small" sx={{ opacity: 0.5 }} />
-                        )}
                       </Box>
                     }
                     secondary={
@@ -535,7 +517,7 @@ const Sidebar = ({ onClose }) => {
 
       <Divider sx={{ borderColor: alpha("#fff", 0.1) }} />
 
-      {/* Chat List with Infinite Scroll */}
+      {/* Chat List with Infinite Scroll - ИСПРАВЛЕНО */}
       <Box
         ref={scrollableNodeRef}
         sx={{
@@ -558,67 +540,72 @@ const Sidebar = ({ onClose }) => {
             <CircularProgress size={30} sx={{ color: alpha("#fff", 0.5) }} />
           </Box>
         ) : (
-          <InfiniteScroll
-            dataLength={visibleChats.length}
-            next={loadMoreChats}
-            hasMore={hasMore && !searchQuery}
-            loader={
-              <Box sx={{ p: 2, textAlign: "center" }}>
-                <CircularProgress
-                  size={20}
-                  sx={{ color: alpha("#fff", 0.5) }}
-                />
+          <>
+            {visibleChats.length > 0 ? (
+              <InfiniteScroll
+                dataLength={visibleChats.length}
+                next={loadMoreChats}
+                hasMore={hasMore && !searchQuery && !isIncognito}
+                loader={
+                  hasMore && !searchQuery && !isIncognito ? (
+                    <Box sx={{ p: 2, textAlign: "center" }}>
+                      <CircularProgress
+                        size={20}
+                        sx={{ color: alpha("#fff", 0.5) }}
+                      />
+                    </Box>
+                  ) : null
+                }
+                scrollableTarget={scrollableNodeRef.current}
+                endMessage={
+                  !hasMore && visibleChats.length > 0 ? (
+                    <Box sx={{ p: 2, textAlign: "center" }}>
+                      <Typography variant="caption" sx={{ opacity: 0.5 }}>
+                        End of chat history
+                      </Typography>
+                    </Box>
+                  ) : null
+                }
+              >
+                <List disablePadding>
+                  {renderChatGroup(
+                    "Today",
+                    groupedChats.today,
+                    "today",
+                    <TodayIcon fontSize="small" />
+                  )}
+                  {renderChatGroup(
+                    "Yesterday",
+                    groupedChats.yesterday,
+                    "yesterday",
+                    <DateRangeIcon fontSize="small" />
+                  )}
+                  {renderChatGroup(
+                    "Last 7 days",
+                    groupedChats.week,
+                    "week",
+                    <DateRangeIcon fontSize="small" />
+                  )}
+                  {renderChatGroup(
+                    "Older",
+                    groupedChats.older,
+                    "older",
+                    <HistoryIcon fontSize="small" />
+                  )}
+                </List>
+              </InfiniteScroll>
+            ) : (
+              <Box sx={{ p: 3, textAlign: "center" }}>
+                <Typography variant="body2" sx={{ opacity: 0.5 }}>
+                  {searchQuery
+                    ? "No results found"
+                    : isIncognito
+                    ? "Incognito chats are not saved"
+                    : "No chats yet"}
+                </Typography>
               </Box>
-            }
-            scrollableTarget={scrollableNodeRef.current}
-          >
-            <List disablePadding>
-              {groupedChats.pinned.length > 0 &&
-                renderChatGroup(
-                  "Pinned",
-                  groupedChats.pinned,
-                  "pinned",
-                  <PinIcon fontSize="small" />
-                )}
-              {renderChatGroup(
-                "Today",
-                groupedChats.today,
-                "today",
-                <TodayIcon fontSize="small" />
-              )}
-              {renderChatGroup(
-                "Yesterday",
-                groupedChats.yesterday,
-                "yesterday",
-                <DateRangeIcon fontSize="small" />
-              )}
-              {renderChatGroup(
-                "Last 7 days",
-                groupedChats.week,
-                "week",
-                <DateRangeIcon fontSize="small" />
-              )}
-              {renderChatGroup(
-                "Older",
-                groupedChats.older,
-                "older",
-                <HistoryIcon fontSize="small" />
-              )}
-            </List>
-          </InfiniteScroll>
-        )}
-
-        {/* Empty State */}
-        {visibleChats.length === 0 && !isSearching && (
-          <Box sx={{ p: 3, textAlign: "center" }}>
-            <Typography variant="body2" sx={{ opacity: 0.5 }}>
-              {searchQuery
-                ? "No results found"
-                : isIncognito
-                ? "Incognito chats are not saved"
-                : "No chats yet"}
-            </Typography>
-          </Box>
+            )}
+          </>
         )}
 
         {/* Deleted Chats Notice */}
@@ -718,18 +705,7 @@ const Sidebar = ({ onClose }) => {
           </ListItemIcon>
           <ListItemText>Rename</ListItemText>
         </MenuItem>
-        <MenuItem onClick={() => handlePinChat(selectedChat)}>
-          <ListItemIcon>
-            {selectedChat?.is_pinned ? (
-              <UnpinIcon fontSize="small" sx={{ color: "inherit" }} />
-            ) : (
-              <PinIcon fontSize="small" sx={{ color: "inherit" }} />
-            )}
-          </ListItemIcon>
-          <ListItemText>
-            {selectedChat?.is_pinned ? "Unpin" : "Pin"}
-          </ListItemText>
-        </MenuItem>
+
         <Divider sx={{ borderColor: alpha("#fff", 0.1) }} />
         <MenuItem
           onClick={() => handleDeleteChat(selectedChat)}
