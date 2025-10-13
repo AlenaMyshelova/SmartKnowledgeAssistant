@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import {
   Box,
   List,
@@ -23,6 +29,7 @@ import {
   Avatar,
   CircularProgress,
   Alert,
+  AlertTitle,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -97,6 +104,10 @@ const Sidebar = ({ onClose }) => {
     deleteSavedFilter,
     applySavedFilter,
     deletedChats,
+    loadChatHistory,
+    currentChat,
+    setCurrentChat,
+    setMessages,
   } = useChat();
 
   const [selectedChat, setSelectedChat] = useState(null);
@@ -120,6 +131,27 @@ const Sidebar = ({ onClose }) => {
     config: {},
   });
   const scrollableNodeRef = useRef();
+
+  // 🔥 ФИЛЬТРУЕМ incognito и пустые чаты
+  const visibleChats = useMemo(() => {
+    const chatList = searchQuery ? searchResults : chats;
+
+    if (!chatList) return [];
+
+    // Показываем только:
+    // 1. Обычные чаты (НЕ incognito)
+    // 2. С положительными ID
+    // 3. С хотя бы одним сообщением
+    return chatList.filter((chat) => {
+      return (
+        chat &&
+        chat.id > 0 &&
+        !chat.is_incognito &&
+        chat.title !== "Incognito Chat" &&
+        (chat.message_count > 0 || chat.last_message)
+      );
+    });
+  }, [chats, searchResults, searchQuery]);
 
   // Handle chat deletion with undo
   const handleDeleteChat = async (chat) => {
@@ -184,6 +216,12 @@ const Sidebar = ({ onClose }) => {
   };
 
   const handleChatClick = (chat) => {
+    // Загружаем историю чата при клике
+    if (currentChat?.id !== chat.id) {
+      setCurrentChat(chat);
+      setMessages([]);
+      loadChatHistory(chat.id);
+    }
     navigate(`/chat/${chat.id}`);
     onClose?.();
   };
@@ -217,7 +255,7 @@ const Sidebar = ({ onClose }) => {
     }));
   };
 
-  // Group chats by date
+  // Group chats by date - используем отфильтрованные чаты
   const groupChats = (chatList) => {
     const groups = {
       pinned: [],
@@ -303,7 +341,7 @@ const Sidebar = ({ onClose }) => {
                 }
                 sx={{
                   backgroundColor:
-                    chatId === String(chat.id)
+                    chatId === String(chat.id) || currentChat?.id === chat.id
                       ? alpha("#fff", 0.1)
                       : "transparent",
                   "&:hover": {
@@ -316,11 +354,7 @@ const Sidebar = ({ onClose }) => {
                   sx={{ py: 1, pl: 4 }}
                 >
                   <ListItemIcon sx={{ minWidth: 30, color: "inherit" }}>
-                    {chat.is_incognito ? (
-                      <IncognitoIcon fontSize="small" />
-                    ) : (
-                      <ChatIcon fontSize="small" />
-                    )}
+                    <ChatIcon fontSize="small" />
                   </ListItemIcon>
                   <ListItemText
                     primary={
@@ -347,23 +381,6 @@ const Sidebar = ({ onClose }) => {
                       )
                     }
                   />
-                  {chat.is_incognito && (
-                    <Chip
-                      icon={<IncognitoIcon />}
-                      label="Incognito"
-                      size="small"
-                      variant="outlined"
-                      sx={{
-                        ml: 1,
-                        height: 20,
-                        borderColor: alpha("#fff", 0.2),
-                        color: "inherit",
-                        "& .MuiChip-icon": {
-                          fontSize: 14,
-                        },
-                      }}
-                    />
-                  )}
                 </ListItemButton>
               </ListItem>
             ))}
@@ -373,8 +390,8 @@ const Sidebar = ({ onClose }) => {
     );
   };
 
-  const displayChats = searchQuery ? searchResults : chats;
-  const groupedChats = groupChats(displayChats);
+  // Используем отфильтрованные чаты
+  const groupedChats = groupChats(visibleChats);
 
   return (
     <Box
@@ -434,6 +451,21 @@ const Sidebar = ({ onClose }) => {
           }
           sx={{ mb: 1 }}
         />
+
+        {/* 🔥 Incognito Alert */}
+        {isIncognito && (
+          <Alert
+            severity="info"
+            sx={{
+              mb: 2,
+              backgroundColor: "rgba(33, 150, 243, 0.1)",
+              color: "info.main",
+            }}
+          >
+            <AlertTitle>Incognito Mode Active</AlertTitle>
+            Messages will not be saved to history
+          </Alert>
+        )}
 
         {/* Search */}
         <TextField
@@ -527,7 +559,7 @@ const Sidebar = ({ onClose }) => {
           </Box>
         ) : (
           <InfiniteScroll
-            dataLength={displayChats.length}
+            dataLength={visibleChats.length}
             next={loadMoreChats}
             hasMore={hasMore && !searchQuery}
             loader={
@@ -577,10 +609,14 @@ const Sidebar = ({ onClose }) => {
         )}
 
         {/* Empty State */}
-        {displayChats.length === 0 && !isSearching && (
+        {visibleChats.length === 0 && !isSearching && (
           <Box sx={{ p: 3, textAlign: "center" }}>
             <Typography variant="body2" sx={{ opacity: 0.5 }}>
-              {searchQuery ? "No results found" : "No chats yet"}
+              {searchQuery
+                ? "No results found"
+                : isIncognito
+                ? "Incognito chats are not saved"
+                : "No chats yet"}
             </Typography>
           </Box>
         )}
