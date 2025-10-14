@@ -80,7 +80,7 @@ class SearchChatsRequest(BaseModel):
     """Request model for searching chats."""
     query: str
     include_archived: bool = False
-    limit: int = 20
+    limit: int = 50
 
 
 class ChatModeStatus(BaseModel):

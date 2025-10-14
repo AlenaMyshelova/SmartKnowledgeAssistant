@@ -143,6 +143,38 @@ async def get_chat_sessions(
     except Exception as e:
         logger.error(f"Error fetching chat sessions: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/sessions/search")
+async def search_chats_get(
+        query: str,
+        include_archived: bool = False,
+        limit: int = 50,
+        current_user: User = Depends(get_current_user)
+    ):
+        """Search in user's chat history via GET request."""
+        try:
+            logger.info(f"Searching for '{query}' for user {current_user.id}")
+            
+            results = chat_manager.search_chats(  
+                user_id=current_user.id,
+                query=query,
+                include_archived=include_archived,
+                limit=limit
+            )
+            
+            # Фильтруем incognito чаты из результатов поиска
+            filtered_results = [
+                r for r in results 
+                if r.get("id", 0) > 0 and not r.get("is_incognito", False)
+            ]
+            
+            logger.info(f"Found {len(filtered_results)} results after filtering")
+            
+            return {"results": filtered_results}
+        except Exception as e:
+            logger.error(f"Error searching chats: {str(e)}")
+            raise HTTPException(status_code=500, detail=str(e))    
+
 
 @router.get("/sessions/{chat_id}", response_model=ChatHistoryResponse)
 async def get_chat_history(
@@ -232,6 +264,7 @@ async def clear_incognito_chats(
     except Exception as e:
         logger.error(f"Error clearing incognito chats: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+    
 
 @router.patch("/sessions/{chat_id}")
 async def update_chat_session(
@@ -291,7 +324,8 @@ async def delete_chat_session(
         logger.error(f"Error deleting chat session: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/search", response_model=list)
+
+@router.post("/search")
 async def search_chats(
     request: SearchChatsRequest,
     current_user: User = Depends(get_current_user)
@@ -316,3 +350,4 @@ async def search_chats(
     except Exception as e:
         logger.error(f"Error searching chats: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+    

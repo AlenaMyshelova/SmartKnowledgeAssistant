@@ -345,32 +345,55 @@ class ChatManager:
             conn.commit()
             return success
 
-    def search_chats(self, user_id: int, query: str, include_archived: bool = False, limit: int = 50) -> list:
-        """Search in user's chats."""
-        with _connect() as conn:
-            cur = conn.cursor()
-            base_query = """
-                SELECT DISTINCT cs.id, cs.title, cs.created_at, cs.updated_at
-                FROM chat_sessions cs
-                LEFT JOIN chat_messages cm ON cs.id = cm.chat_id
-                WHERE cs.user_id = ? AND (cs.title LIKE ? OR cm.content LIKE ?)
-            """
-            if not include_archived:
-                base_query += " AND (cs.is_archived = 0 OR cs.is_archived IS NULL)"
-            base_query += " ORDER BY cs.updated_at DESC LIMIT ?"
-            
-            search_pattern = f"%{query}%"
-            cur.execute(base_query, (user_id, search_pattern, search_pattern, limit))
-            
-            results = []
-            for row in cur.fetchall():
-                results.append({
-                    "id": row["id"],
-                    "title": row["title"] or "New Chat",
-                    "created_at": row["created_at"],
-                    "updated_at": row["updated_at"]
-                })
-            return results
+    
+def search_chats(self, user_id: int, query: str, include_archived: bool = False, limit: int = 50) -> list:
+    """Search in user's chats - case insensitive."""
+    with _connect() as conn:
+        cur = conn.cursor()
+        
+        # Логирование для отладки
+        logger.info(f"Searching for '{query}' for user {user_id}")
+        
+        # Используем LOWER для case-insensitive поиска
+        base_query = """
+            SELECT DISTINCT 
+                cs.id, 
+                cs.title, 
+                cs.created_at, 
+                cs.updated_at,
+                cs.is_archived,
+                COUNT(DISTINCT cm.id) as message_count
+            FROM chat_sessions cs
+            LEFT JOIN chat_messages cm ON cs.id = cm.chat_id
+            WHERE cs.user_id = ? 
+            AND (
+                LOWER(cs.title) LIKE LOWER(?) 
+                OR LOWER(cm.content) LIKE LOWER(?)
+            )
+        """
+        
+        if not include_archived:
+            base_query += " AND (cs.is_archived = 0 OR cs.is_archived IS NULL)"
+        
+        base_query += " GROUP BY cs.id ORDER BY cs.updated_at DESC LIMIT ?"
+        
+        search_pattern = f"%{query}%"
+        cur.execute(base_query, (user_id, search_pattern, search_pattern, limit))
+        
+        results = []
+        for row in cur.fetchall():
+            results.append({
+                "id": row["id"],
+                "title": row["title"] or "New Chat",
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "is_archived": bool(row["is_archived"]) if row["is_archived"] is not None else False,
+                "is_incognito": False,  # Обычные чаты никогда не incognito
+                "message_count": row["message_count"]
+            })
+        
+        logger.info(f"Found {len(results)} results for query '{query}'")
+        return results
 
     def get_chat_mode_status(self, user_id: int) -> dict:
         """Get chat mode status."""

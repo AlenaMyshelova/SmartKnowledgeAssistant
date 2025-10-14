@@ -516,7 +516,7 @@ export const ChatProvider = ({ children }) => {
   );
 
   const searchChats = useCallback(
-    async (query) => {
+    async (query, useFilters = false) => {
       if (!query.trim()) {
         setSearchResults([]);
         setIsSearching(false);
@@ -525,19 +525,37 @@ export const ChatProvider = ({ children }) => {
 
       try {
         setIsSearching(true);
-        const data = await apiCall("/chat/search", {
-          method: "POST",
-          body: JSON.stringify({
-            query,
-            filters,
-            limit: 50,
-          }),
-        });
+        let data;
 
-        // Фильтруем incognito из результатов поиска
-        const regularResults = (data.results || []).filter(
-          (r) => r.id > 0 && !r.is_incognito
+        if (useFilters && Object.keys(filters).some((v) => filters[v])) {
+          // POST с фильтрами (если они есть)
+          data = await apiCall("/chat/search", {
+            method: "POST",
+            body: JSON.stringify({
+              query,
+              include_archived: false,
+              filters,
+              limit: 50,
+            }),
+          });
+        } else {
+          // GET для простого поиска
+          const params = new URLSearchParams({
+            query: query,
+            include_archived: "false",
+            limit: "50",
+          });
+
+          data = await apiCall(`/chat/sessions/search?${params}`);
+        }
+
+        // Обрабатываем результаты независимо от метода
+        const results = data.results || data || [];
+        const regularResults = results.filter(
+          (r) =>
+            r && r.id > 0 && !r.is_incognito && r.title !== "Incognito Chat"
         );
+
         setSearchResults(regularResults);
       } catch (err) {
         console.error("Error searching chats:", err);
