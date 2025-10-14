@@ -5,8 +5,10 @@ import React, {
   useCallback,
   useEffect,
 } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { chatApi } from "../services/api";
+
 const ChatContext = createContext();
 
 export const useChat = () => {
@@ -18,8 +20,8 @@ export const useChat = () => {
 };
 
 export const ChatProvider = ({ children }) => {
-  const { token } = useAuth();
-
+  const { token, user, isAuthenticated } = useAuth();
+  const navigate = useNavigate();
   // Chat states
   const [chats, setChats] = useState([]);
   const [currentChat, setCurrentChat] = useState(null);
@@ -27,7 +29,7 @@ export const ChatProvider = ({ children }) => {
   const [isIncognito, setIsIncognito] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
+  const [deleteTimers, setDeleteTimers] = useState({});
   // Pagination states
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(1);
@@ -67,29 +69,41 @@ export const ChatProvider = ({ children }) => {
     return response.json();
   };
 
-  // Load chats with pagination
+  // Load chats with pagination - ВСЕГДА без incognito
   const loadChats = useCallback(
     async (pageNum = 1, append = false) => {
       if (!token) return;
+
+      console.log("Loading chats, user:", user, "page:", pageNum);
 
       try {
         setLoading(true);
         const params = new URLSearchParams({
           page: pageNum,
           page_size: 20,
-          include_incognito: isIncognito,
+          include_incognito: "false",
         });
 
         const data = await apiCall(`/chat/sessions?${params}`);
 
+        console.log("Loaded chats data:", data);
+
+        // Дополнительная фильтрация на frontend
+        const regularChats = (data.chats || []).filter((chat) => {
+          // Исключаем incognito чаты:
+          return (
+            chat.id > 0 && !chat.is_incognito && chat.title !== "Incognito Chat"
+          );
+        });
+
         if (append) {
-          setChats((prev) => [...prev, ...(data.chats || [])]);
+          setChats((prev) => [...prev, ...regularChats]);
         } else {
-          setChats(data.chats || []);
+          setChats(regularChats);
         }
 
-        setTotalChats(data.total || 0);
-        setHasMore((data.chats?.length || 0) === 20);
+        setTotalChats(regularChats.length);
+        setHasMore(regularChats.length === 20);
         setPage(pageNum);
       } catch (err) {
         console.error("Error loading chats:", err);
@@ -98,7 +112,7 @@ export const ChatProvider = ({ children }) => {
         setLoading(false);
       }
     },
-    [token, isIncognito]
+    [token, user] // НЕ включаем isIncognito в зависимости
   );
 
   // Load more chats for infinite scroll
@@ -109,9 +123,13 @@ export const ChatProvider = ({ children }) => {
   }, [loading, hasMore, page, loadChats]);
 
   // Create new chat
+
   const createNewChat = useCallback(
     async (title = null) => {
       try {
+        // Очищаем сообщения перед созданием нового чата
+        setMessages([]);
+
         const data = await apiCall("/chat/sessions", {
           method: "POST",
           body: JSON.stringify({
@@ -131,8 +149,13 @@ export const ChatProvider = ({ children }) => {
           last_message: null,
         };
 
-        setChats((prev) => [newChat, ...prev]);
+        // НЕ добавляем incognito чаты в список
+        if (!isIncognito) {
+          setChats((prev) => [newChat, ...prev]);
+        }
+
         setCurrentChat(newChat);
+        setMessages([]); // Убеждаемся, что сообщения пустые
 
         return data.chat_id;
       } catch (err) {
@@ -185,11 +208,11 @@ export const ChatProvider = ({ children }) => {
 
         setMessages((prev) => [...prev, userMessage]);
 
-        // Формируем запрос ТОЧНО по модели backend
+        // Формируем запрос
         const requestData = {
           message: message,
           chat_id: currentChat?.id || null,
-          data_source: dataSource || "company_faqs", // Всегда должно быть значение
+          data_source: dataSource || "company_faqs",
           is_incognito: isIncognito,
         };
 
@@ -200,7 +223,51 @@ export const ChatProvider = ({ children }) => {
 
         const data = response.data;
 
-        // Если backend создал новый чат, обновляем currentChat
+        // Если это incognito - НЕ добавляем в список чатов
+        if (isIncognito) {
+          // Обновляем currentChat для incognito
+          if (!currentChat && data.chat_id) {
+            setCurrentChat({
+              id: data.chat_id,
+              title: "Incognito Chat",
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              is_incognito: true,
+              is_pinned: false,
+              is_archived: false,
+              message_count: 2,
+              last_message: message.substring(0, 100),
+            });
+          }
+
+          // Только обновляем сообщения в текущей сессии
+          setMessages((prev) => {
+            const filtered = prev.filter((m) => !m.id.startsWith("temp-"));
+            return [
+              ...filtered,
+              {
+                id: `user-${Date.now()}`,
+                role: "user",
+                content: message,
+                timestamp: new Date().toISOString(),
+                chat_id: data.chat_id,
+              },
+              {
+                id: `assistant-${Date.now()}`,
+                role: "assistant",
+                content: data.response,
+                timestamp: new Date().toISOString(),
+                sources: data.sources,
+                chat_id: data.chat_id,
+              },
+            ];
+          });
+
+          // НЕ обновляем список чатов!
+          return data;
+        }
+
+        // Для обычных чатов - обновляем как раньше
         if (!currentChat && data.chat_id) {
           const newChat = {
             id: data.chat_id,
@@ -208,7 +275,7 @@ export const ChatProvider = ({ children }) => {
               message.substring(0, 50) + (message.length > 50 ? "..." : ""),
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
-            is_incognito: isIncognito,
+            is_incognito: false,
             is_pinned: false,
             is_archived: false,
             message_count: 2,
@@ -219,7 +286,7 @@ export const ChatProvider = ({ children }) => {
 
           // Если создан новый чат, переходим на его URL
           if (window.location.pathname === "/chat") {
-            window.history.pushState({}, "", `/chat/${data.chat_id}`);
+            navigate(`/chat/${data.chat_id}`, { replace: true });
           }
         }
 
@@ -238,7 +305,6 @@ export const ChatProvider = ({ children }) => {
 
         // Обновляем сообщения
         setMessages((prev) => {
-          // Удаляем временное сообщение пользователя и добавляем постоянные
           const filtered = prev.filter((m) => m.id !== userMessage.id);
           return [
             ...filtered,
@@ -251,8 +317,8 @@ export const ChatProvider = ({ children }) => {
           ];
         });
 
-        // Обновляем информацию о чате в списке
-        if (currentChat || data.chat_id) {
+        // Обновляем информацию о чате в списке (только для обычных)
+        if (!isIncognito && (currentChat || data.chat_id)) {
           const chatIdToUpdate = currentChat?.id || data.chat_id;
           setChats((prev) =>
             prev.map((chat) =>
@@ -268,18 +334,21 @@ export const ChatProvider = ({ children }) => {
           );
         }
 
+        // Перезагружаем список только для НЕ incognito
+        // if (!isIncognito) {
+        //   loadChats(1);
+        // }
+
         return data;
       } catch (err) {
         // Удаляем временное сообщение при ошибке
         setMessages((prev) => prev.filter((m) => !m.id.startsWith("temp-")));
 
-        // Обработка ошибок
         const errorMessage =
           err.response?.data?.detail || err.message || "Failed to send message";
         console.error("Error sending message:", errorMessage);
         setError(errorMessage);
 
-        // Показываем уведомление об ошибке
         if (window.enqueueSnackbar) {
           window.enqueueSnackbar(errorMessage, { variant: "error" });
         }
@@ -287,16 +356,42 @@ export const ChatProvider = ({ children }) => {
         throw err;
       }
     },
-    [currentChat, isIncognito]
+    [currentChat, isIncognito, loadChats, navigate]
   );
+
+  // Toggle incognito mode
+  const toggleIncognito = useCallback(() => {
+    setIsIncognito((prev) => {
+      const newValue = !prev;
+
+      // При выходе из incognito - очищаем временные данные
+      if (prev === true && newValue === false) {
+        setCurrentChat(null);
+        setMessages([]);
+        // Перезагружаем обычные чаты
+        loadChats(1);
+      }
+
+      // При входе в incognito - очищаем текущий чат
+      if (prev === false && newValue === true) {
+        setCurrentChat(null);
+        setMessages([]);
+      }
+
+      return newValue;
+    });
+  }, [loadChats]);
 
   // Delete chat
   const deleteChat = useCallback(
     async (chatId) => {
       const chatToDelete = chats.find((c) => c.id === chatId);
-      if (!chatToDelete) return;
+      if (!chatToDelete) return null;
 
+      // Сразу удаляем из UI
       setChats((prev) => prev.filter((c) => c.id !== chatId));
+
+      // Добавляем в список удаленных
       setDeletedChats((prev) => [...prev, chatToDelete]);
 
       if (currentChat?.id === chatId) {
@@ -304,43 +399,100 @@ export const ChatProvider = ({ children }) => {
         setMessages([]);
       }
 
-      // Actually delete after 5 seconds
-      setTimeout(async () => {
-        try {
-          await apiCall(`/chat/sessions/${chatId}`, {
-            method: "DELETE",
-          });
-          setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
-        } catch (err) {
-          // Restore on error
-          setChats((prev) => [...prev, chatToDelete]);
-          setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
-          console.error("Error deleting chat:", err);
-        }
-      }, 5000);
+      // Создаем таймер для отложенного удаления
+      const timer = setTimeout(async () => {
+        // Проверяем, не был ли чат восстановлен
+        setDeletedChats((currentDeleted) => {
+          const stillDeleted = currentDeleted.find((c) => c.id === chatId);
+
+          // Если чат все еще в списке удаленных - удаляем с сервера
+          if (stillDeleted) {
+            apiCall(`/chat/sessions/${chatId}`, {
+              method: "DELETE",
+            })
+              .then(() => {
+                // После успешного удаления убираем из deletedChats
+                setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
+                // Удаляем таймер из хранилища
+                setDeleteTimers((prev) => {
+                  const newTimers = { ...prev };
+                  delete newTimers[chatId];
+                  return newTimers;
+                });
+              })
+              .catch((err) => {
+                // При ошибке восстанавливаем чат
+                setChats((prev) => {
+                  if (!prev.find((c) => c.id === chatId)) {
+                    return [...prev, chatToDelete].sort(
+                      (a, b) => new Date(b.updated_at) - new Date(a.updated_at)
+                    );
+                  }
+                  return prev;
+                });
+                setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
+                console.error("Error deleting chat:", err);
+
+                if (window.enqueueSnackbar) {
+                  window.enqueueSnackbar("Failed to delete chat", {
+                    variant: "error",
+                  });
+                }
+              });
+          }
+
+          return currentDeleted;
+        });
+      }, 5000); // 5 секунд на undo
+
+      // Сохраняем таймер
+      setDeleteTimers((prev) => ({ ...prev, [chatId]: timer }));
 
       return chatToDelete;
     },
     [chats, currentChat, token]
   );
 
-  // Undo delete
+  // Undo delete - ИСПРАВЛЕННАЯ ВЕРСИЯ
   const undoDelete = useCallback(
     (chatId) => {
       const chatToRestore = deletedChats.find((c) => c.id === chatId);
       if (!chatToRestore) return;
 
-      setChats((prev) =>
-        [...prev, chatToRestore].sort(
+      // Отменяем таймер удаления
+      if (deleteTimers[chatId]) {
+        clearTimeout(deleteTimers[chatId]);
+        setDeleteTimers((prev) => {
+          const newTimers = { ...prev };
+          delete newTimers[chatId];
+          return newTimers;
+        });
+      }
+
+      // Восстанавливаем чат в список
+      setChats((prev) => {
+        if (prev.find((c) => c.id === chatId)) {
+          return prev;
+        }
+        return [...prev, chatToRestore].sort(
           (a, b) => new Date(b.updated_at) - new Date(a.updated_at)
-        )
-      );
+        );
+      });
+
+      // Удаляем из списка удаленных
       setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
     },
-    [deletedChats]
+    [deletedChats, deleteTimers]
   );
 
-  // Update chat
+  // Очистка таймеров при размонтировании
+  useEffect(() => {
+    return () => {
+      // Очищаем все таймеры при размонтировании компонента
+      Object.values(deleteTimers).forEach((timer) => clearTimeout(timer));
+    };
+  }, [deleteTimers]);
+
   const updateChat = useCallback(
     async (chatId, updates) => {
       setChats((prev) =>
@@ -363,9 +515,8 @@ export const ChatProvider = ({ children }) => {
     [token, page, loadChats]
   );
 
-  // Search chats
   const searchChats = useCallback(
-    async (query) => {
+    async (query, useFilters = false) => {
       if (!query.trim()) {
         setSearchResults([]);
         setIsSearching(false);
@@ -374,16 +525,38 @@ export const ChatProvider = ({ children }) => {
 
       try {
         setIsSearching(true);
-        const data = await apiCall("/chat/search", {
-          method: "POST",
-          body: JSON.stringify({
-            query,
-            filters,
-            limit: 50,
-          }),
-        });
+        let data;
 
-        setSearchResults(data.results || []);
+        if (useFilters && Object.keys(filters).some((v) => filters[v])) {
+          // POST с фильтрами (если они есть)
+          data = await apiCall("/chat/search", {
+            method: "POST",
+            body: JSON.stringify({
+              query,
+              include_archived: false,
+              filters,
+              limit: 50,
+            }),
+          });
+        } else {
+          // GET для простого поиска
+          const params = new URLSearchParams({
+            query: query,
+            include_archived: "false",
+            limit: "50",
+          });
+
+          data = await apiCall(`/chat/sessions/search?${params}`);
+        }
+
+        // Обрабатываем результаты независимо от метода
+        const results = data.results || data || [];
+        const regularResults = results.filter(
+          (r) =>
+            r && r.id > 0 && !r.is_incognito && r.title !== "Incognito Chat"
+        );
+
+        setSearchResults(regularResults);
       } catch (err) {
         console.error("Error searching chats:", err);
         setSearchResults([]);
@@ -394,14 +567,6 @@ export const ChatProvider = ({ children }) => {
     [token, filters]
   );
 
-  // Toggle incognito mode
-  const toggleIncognito = useCallback(() => {
-    setIsIncognito((prev) => !prev);
-    setCurrentChat(null);
-    setMessages([]);
-  }, []);
-
-  // Clear all incognito chats
   const clearIncognitoChats = useCallback(async () => {
     try {
       await apiCall("/chat/incognito/clear", {
@@ -420,7 +585,6 @@ export const ChatProvider = ({ children }) => {
     }
   }, [token, currentChat]);
 
-  // Save filter preset
   const saveFilter = useCallback(
     (name, filterConfig) => {
       const newFilter = {
@@ -437,7 +601,6 @@ export const ChatProvider = ({ children }) => {
     [savedFilters]
   );
 
-  // Delete saved filter
   const deleteSavedFilter = useCallback(
     (filterId) => {
       const updated = savedFilters.filter((f) => f.id !== filterId);
@@ -447,7 +610,6 @@ export const ChatProvider = ({ children }) => {
     [savedFilters]
   );
 
-  // Apply saved filter
   const applySavedFilter = useCallback((filter) => {
     setFilters({
       dateRange: filter.dateRange,
@@ -460,12 +622,12 @@ export const ChatProvider = ({ children }) => {
     }
   }, []);
 
-  // Initial load
+  // Загружаем чаты когда пользователь меняется
   useEffect(() => {
-    if (token) {
+    if (isAuthenticated && user?.id && token) {
+      console.log("User authenticated, loading chats for:", user);
       loadChats(1);
 
-      // Load saved filters from localStorage
       const saved = localStorage.getItem("savedFilters");
       if (saved) {
         try {
@@ -474,8 +636,15 @@ export const ChatProvider = ({ children }) => {
           console.error("Error loading saved filters:", err);
         }
       }
+    } else if (!isAuthenticated) {
+      console.log("User not authenticated, clearing all data");
+      setChats([]);
+      setCurrentChat(null);
+      setMessages([]);
+      setSearchResults([]);
+      setDeletedChats([]);
     }
-  }, [token]);
+  }, [isAuthenticated, user?.id, token]);
 
   // Search effect with debounce
   useEffect(() => {
@@ -491,9 +660,14 @@ export const ChatProvider = ({ children }) => {
     return () => clearTimeout(timer);
   }, [searchQuery, searchChats]);
 
+  // Алиасы для совместимости
+  const userChats = chats;
+  const loadUserChats = loadChats;
+
   const value = {
     // States
     chats,
+    userChats,
     currentChat,
     messages,
     isIncognito,
@@ -510,6 +684,7 @@ export const ChatProvider = ({ children }) => {
 
     // Actions
     loadChats,
+    loadUserChats,
     loadMoreChats,
     createNewChat,
     loadChatHistory,
