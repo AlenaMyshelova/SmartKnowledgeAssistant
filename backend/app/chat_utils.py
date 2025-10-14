@@ -21,14 +21,12 @@ def build_context_from_results(results: List[Dict[str, Any]]) -> Tuple[str, str]
     context_parts = []
     
     for i, result in enumerate(results):
-        # Начинаем новую секцию
-        section = f"--- Document {i+1}"
+    # Более информативная метка с категорией и ID
+        category = result.get("Category", "General")
+        faq_id = result.get("ID", i+1)
         
-        # НОВОЕ: Добавляем оценку релевантности, если есть
-        if "_score" in result:
-            relevance = int(result["_score"] * 100)
-            section += f" (Relevance: {relevance}%)"
-        section += " ---\n"
+        # Формируем заголовок секции
+        section = f"--- {category} FAQ #{faq_id} ---\n"
         
         # Добавляем содержимое документа
         if "Question" in result and "Answer" in result:
