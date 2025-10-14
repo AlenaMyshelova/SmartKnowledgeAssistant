@@ -291,6 +291,7 @@ const ChatInterface = () => {
           borderBottom: 1,
           borderColor: "divider",
           backgroundColor: "background.paper",
+          flexShrink: 0,
         }}
       >
         <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
@@ -337,79 +338,105 @@ const ChatInterface = () => {
       {/* Messages Area */}
       <Box
         sx={{
-          flexGrow: 1,
+          flexGrow: 1, // Занимает всё доступное пространство
           overflow: "auto",
           backgroundColor: "background.default",
-          py: 2,
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0, // Важно для правильной работы flexbox
         }}
       >
-        {loading && (
-          <Box sx={{ display: "flex", justifyContent: "center", p: 3 }}>
-            <CircularProgress />
-          </Box>
-        )}
+        {/* Внутренний контейнер для контента */}
+        <Box
+          sx={{
+            flexGrow: 1,
+            display: "flex",
+            flexDirection: "column",
+            py: 2,
+          }}
+        >
+          {loading && (
+            <Box sx={{ display: "flex", justifyContent: "center", p: 3 }}>
+              <CircularProgress />
+            </Box>
+          )}
 
-        {!loading && messages.length === 0 && (
-          <Box sx={{ textAlign: "center", p: 4 }}>
-            <Typography variant="h5" color="text.secondary" gutterBottom>
-              Start a conversation
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {isIncognito
-                ? "🔒 Your messages won't be saved in incognito mode"
-                : "Ask me anything about your company policies and procedures"}
-            </Typography>
-
-            {/* Suggested prompts */}
+          {!loading && messages.length === 0 && (
             <Box
               sx={{
-                mt: 3,
+                textAlign: "center",
+                p: 4,
+                flexGrow: 1, // Центрирует контент по вертикали
                 display: "flex",
-                flexWrap: "wrap",
-                gap: 1,
+                flexDirection: "column",
                 justifyContent: "center",
               }}
             >
-              {[
-                "What products does TechNova offer?",
-                "How do I reset my NovaCRM password?",
-                "How much is the NovaDocs Pro plan?",
-                "Does NovaMeet have mobile apps?",
-              ].map((prompt) => (
-                <Chip
-                  key={prompt}
-                  label={prompt}
-                  onClick={() => handleSendMessage(prompt, "company_faqs")}
-                  sx={{ cursor: "pointer" }}
-                />
-              ))}
-            </Box>
-          </Box>
-        )}
+              <Typography variant="h5" color="text.secondary" gutterBottom>
+                Start a conversation
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {isIncognito
+                  ? "🔒 Your messages won't be saved in incognito mode"
+                  : "Ask me anything about your company policies and procedures"}
+              </Typography>
 
-        {/* Render Messages */}
-        {messages.map((message, index) => renderMessage(message, index))}
-
-        {/* Loading indicator for sending */}
-        {isSending && (
-          <Box
-            sx={{ display: "flex", justifyContent: "flex-start", px: 2, mb: 2 }}
-          >
-            <Paper
-              elevation={1}
-              sx={{ p: 2, backgroundColor: "background.paper" }}
-            >
-              <Box sx={{ display: "flex", gap: 1 }}>
-                <CircularProgress size={16} />
-                <Typography variant="body2" color="text.secondary">
-                  Assistant is typing...
-                </Typography>
+              {/* Suggested prompts */}
+              <Box
+                sx={{
+                  mt: 3,
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 1,
+                  justifyContent: "center",
+                }}
+              >
+                {[
+                  "What products does TechNova offer?",
+                  "How do I reset my NovaCRM password?",
+                  "How much is the NovaDocs Pro plan?",
+                  "Does NovaMeet have mobile apps?",
+                ].map((prompt) => (
+                  <Chip
+                    key={prompt}
+                    label={prompt}
+                    onClick={() => handleSendMessage(prompt, "company_faqs")}
+                    sx={{ cursor: "pointer" }}
+                  />
+                ))}
               </Box>
-            </Paper>
-          </Box>
-        )}
+            </Box>
+          )}
 
-        <div ref={messagesEndRef} />
+          {/* Render Messages */}
+          {messages.map((message, index) => renderMessage(message, index))}
+
+          {/* Loading indicator for sending */}
+          {isSending && (
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "flex-start",
+                px: 2,
+                mb: 2,
+              }}
+            >
+              <Paper
+                elevation={1}
+                sx={{ p: 2, backgroundColor: "background.paper" }}
+              >
+                <Box sx={{ display: "flex", gap: 1 }}>
+                  <CircularProgress size={16} />
+                  <Typography variant="body2" color="text.secondary">
+                    Assistant is typing...
+                  </Typography>
+                </Box>
+              </Paper>
+            </Box>
+          )}
+
+          <div ref={messagesEndRef} />
+        </Box>
       </Box>
 
       {/* Input Area - Using your existing MessageInput component */}
@@ -420,6 +447,7 @@ const ChatInterface = () => {
           borderTop: 1,
           borderColor: "divider",
           backgroundColor: "background.paper",
+          flexShrink: 0,
         }}
       >
         <MessageInput
