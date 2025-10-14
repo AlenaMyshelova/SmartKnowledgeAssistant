@@ -685,7 +685,7 @@ const Sidebar = ({ onClose }) => {
         onClose={handleCloseMenu}
         PaperProps={{
           sx: {
-            backgroundColor: "#2a2b32",
+            backgroundColor: "#4a5abfff",
             color: "white",
           },
         }}
