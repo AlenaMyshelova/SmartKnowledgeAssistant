@@ -7,10 +7,10 @@ from app.auth.jwt import decode_access_token, verify_token
 from app.database import db_manager
 from app.models.user import User, TokenData
 
-# Схема OAuth2 для получения токена из заголовка Authorization
+# Schema OAuth2 for obtaining token from Authorization header
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
 
-# Схема Bearer для альтернативного получения токена
+# Schema Bearer for alternative token retrieval
 security = HTTPBearer(auto_error=False)
 
 async def get_current_user_optional(

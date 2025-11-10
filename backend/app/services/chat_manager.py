@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 # Database path (…/backend/data/assistant.db)
 DB_PATH = (Path(__file__).resolve().parents[2] / "data" / "assistant.db")
-DB_PATH.parent.mkdir(parents=True, exist_ok=True)  # гарантируем наличие каталога
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)   # ensure data directory exists
 
 
 def _connect() -> sqlite3.Connection:

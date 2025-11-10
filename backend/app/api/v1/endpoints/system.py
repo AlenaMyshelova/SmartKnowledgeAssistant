@@ -2,13 +2,12 @@ from fastapi import APIRouter
 
 from app.core.config import settings
 
-# Роутер для системных эндпоинтов
 router = APIRouter()
 
 @router.get("/health")
 def health_check():
     """
-    Проверка работоспособности API.
+    Check the health status of the API.
     
     GET /api/v1/health
     """
@@ -22,7 +21,7 @@ def health_check():
 @router.get("/info")
 def get_api_info():
     """
-    Информация об API.
+    Information about the API.
     
     GET /api/v1/info
     """

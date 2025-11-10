@@ -20,12 +20,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["auth"]) 
 
-# Временные cookie-параметры для OAuth (state/redirect_uri)
+# Temporary cookie parameters for OAuth (state/redirect_uri)
 OAUTH_TMP_COOKIE_MAX_AGE = 300  # 5 minutes
 
 
 def _set_tmp_cookie(response: Response, key: str, value: str) -> None:
-    """Устанавливает временную httpOnly-cookie для промежуточных шагов OAuth."""
+    """Sets a temporary httpOnly cookie for OAuth intermediate steps."""
     response.set_cookie(
         key=key,
         value=value,
@@ -40,7 +40,7 @@ def _set_tmp_cookie(response: Response, key: str, value: str) -> None:
 
 
 def _del_tmp_cookie(response: Response, key: str) -> None:
-    """Удаляет временную httpOnly-cookie."""
+    """Deletes a temporary httpOnly cookie."""
     response.delete_cookie(
         key=key,
         httponly=True,
@@ -55,10 +55,9 @@ async def login_oauth(
     response: Response,
     redirect_uri: Optional[str] = None,
 ):
-    """Инициализация OAuth-авторизации с прямым редиректом."""
+    """Initiate OAuth login with direct redirect."""
     
     if provider not in settings.OAUTH_PROVIDERS:
-        # Для ошибок возвращаем на страницу логина
         return RedirectResponse(
             url=f"{settings.FRONTEND_URL}/login?error=Unknown%20provider"
         )
@@ -66,25 +65,25 @@ async def login_oauth(
     provider_cfg = settings.OAUTH_PROVIDERS[provider]
     provider_redirect_uri = provider_cfg["redirect_uri"]
 
-    # Генерируем state
+    # Generate a random state parameter for CSRF protection
     state = secrets.token_urlsafe(32)
     
-    # URL авторизации у провайдера
+    # URL for OAuth provider authorization
     oauth_provider = get_oauth_provider(provider)
     auth_url = oauth_provider.get_authorization_url(
         redirect_uri=provider_redirect_uri,
         state=state,
     )
     
-    # Создаем response с редиректом
+    # Create redirect response
     resp = RedirectResponse(url=auth_url)
-    
-    # Устанавливаем cookies
+
+    # Set cookies
     _set_tmp_cookie(resp, "oauth_state", state)
     final_redirect = redirect_uri or f"{settings.FRONTEND_URL}/auth/callback"
     _set_tmp_cookie(resp, "oauth_redirect", final_redirect)
-    
-    return resp  # Возвращаем редирект, а не JSON
+
+    return resp  # Return the redirect response
 
 
 @router.get("/{provider}/callback")
@@ -98,21 +97,21 @@ async def oauth_callback(
 ):
     """Callback для OAuth провайдеров после авторизации."""
     
-    # Добавьте логирование для отладки
+   
     print(f"[OAUTH CALLBACK] Provider: {provider}")
     print(f"[OAUTH CALLBACK] Code present: {bool(code)}")
     print(f"[OAUTH CALLBACK] State present: {bool(state)}")
     print(f"[OAUTH CALLBACK] Error: {error}")
     print(f"[OAUTH CALLBACK] Cookies: {request.cookies}")
     
-    # Проверка на ошибку от провайдера
+    # Check for error from provider
     if error:
         logger.warning(f"OAuth error from {provider}: {error}")
         return RedirectResponse(
             url=f"{settings.FRONTEND_URL}/login?error={error}"
         )
-    
-    # Проверка наличия code и state
+
+    # Check for presence of code and state
     if not code or not state:
         error_msg = "Missing code or state parameter"
         print(f"[OAUTH CALLBACK ERROR] {error_msg}")
@@ -141,7 +140,7 @@ async def oauth_callback(
         print(f"[OAUTH CALLBACK] Starting token exchange...")
         print(f"[OAUTH CALLBACK] Code: {code[:20]}...")
         print(f"[OAUTH CALLBACK] Provider redirect URI: {provider_redirect_uri}")
-        # Обмен кода на токен у провайдера
+        # Exchange code for access token
         access_token = await oauth_provider.exchange_code_for_token(
             code,
             redirect_uri=provider_redirect_uri,
