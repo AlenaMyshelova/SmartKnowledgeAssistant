@@ -107,3 +107,7 @@ button:focus-visible {
 .MuiPaper-root {
   transition: all 0.3s ease !important;
 }
+.MuiDrawer-paper {
+  background-color: #1b253b !important; /* Темно-синий */
+  color: #fff !important;
+}

@@ -53,13 +53,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Проверяем CORS preflight запросы (OPTIONS) - всегда пропускаем
         if request.method == "OPTIONS":
             if settings.DEBUG:
-                print(f"✅ CORS preflight request: {path}")
+                print(f"CORS preflight request: {path}")
             return await call_next(request)
         
         # Проверяем публичные пути
         if self._is_public_path(path):
             if settings.DEBUG:
-                print(f"✅ Public path allowed: {path}")
+                print(f"Public path allowed: {path}")
             return await call_next(request)
         
         # Получаем токен

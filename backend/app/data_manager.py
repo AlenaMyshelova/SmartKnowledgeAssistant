@@ -100,7 +100,7 @@ class DataManager:
         except Exception as e:
             print(f"Error loading company_faqs.csv from {self.company_faqs_path}: {e}")
     
-    # НОВЫЙ МЕТОД: Проверка и создание векторного индекса
+    # Проверка и создание векторного индекса
     def _ensure_faq_index(self) -> None:
         """Проверка наличия и актуальности векторного индекса для FAQ."""
         try:
@@ -155,7 +155,7 @@ class DataManager:
             # В случае ошибки векторного поиска используем текстовый
             return self._fallback_text_search(query, limit)
     
-    # НОВЫЙ МЕТОД: Резервный текстовый поиск
+    #  Резервный текстовый поиск
     def _fallback_text_search(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
         """Резервный текстовый поиск (оригинальная реализация)."""
         df = self.data_sources.get("company_faqs")
@@ -181,7 +181,7 @@ class DataManager:
             
         return records
     
-    # НОВЫЙ МЕТОД: Поиск в загруженных пользовательских файлах
+    # Поиск в загруженных пользовательских файлах
     def search_uploaded_file(self, query: str, file_id: str, limit: int = 5) -> List[Dict[str, Any]]:
         """
         Поиск по загруженному файлу с использованием векторного поиска.

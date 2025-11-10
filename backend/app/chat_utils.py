@@ -13,7 +13,7 @@ def build_context_from_results(results: List[Dict[str, Any]]) -> Tuple[str, str]
     if not results:
         return "", "\n\nNote: No relevant information was found in our knowledge base. Please answer based on your general knowledge."
     
-    # НОВОЕ: Сортируем результаты по релевантности (если есть оценки)
+    # Сортируем результаты по релевантности (если есть оценки)
     if "_score" in results[0]:
         results = sorted(results, key=lambda x: x.get("_score", 0), reverse=True)
     
@@ -21,14 +21,12 @@ def build_context_from_results(results: List[Dict[str, Any]]) -> Tuple[str, str]
     context_parts = []
     
     for i, result in enumerate(results):
-        # Начинаем новую секцию
-        section = f"--- Document {i+1}"
+    # Более информативная метка с категорией и ID
+        category = result.get("Category", "General")
+        faq_id = result.get("ID", i+1)
         
-        # НОВОЕ: Добавляем оценку релевантности, если есть
-        if "_score" in result:
-            relevance = int(result["_score"] * 100)
-            section += f" (Relevance: {relevance}%)"
-        section += " ---\n"
+        # Формируем заголовок секции
+        section = f"--- {category} FAQ #{faq_id} ---\n"
         
         # Добавляем содержимое документа
         if "Question" in result and "Answer" in result:
@@ -53,8 +51,8 @@ def build_context_from_results(results: List[Dict[str, Any]]) -> Tuple[str, str]
     
     # Объединяем все секции в единый контекст
     full_context = "\n".join(context_parts)
-    
-    # НОВОЕ: Определяем, достаточно ли релевантной информации
+
+    # Определяем, достаточно ли релевантной информации
     has_relevant_info = any(result.get("_score", 0) > 0.7 for result in results)
     
     scarcity_note = ""

@@ -234,8 +234,6 @@ class GitHubOAuth(OAuthProvider):
             }
 
 
-# ---- Реестр/фабрика провайдеров ----
-
 def get_available_providers() -> List[Dict[str, str]]:
     """
     Возвращает список провайдеров, которые корректно сконфигурированы
