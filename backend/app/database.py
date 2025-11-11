@@ -309,7 +309,7 @@ class DatabaseManager:
                     .all()
                 )
                 
-                return [self._sqlalchemy_session_to_pydantic(s) for s in db_sessions]
+                return [self._sqlalchemy_session_to_pydantic(s, session) for s in db_sessions]
                 
         except Exception as e:
             logger.error(f"Error getting sessions: {e}")
@@ -451,8 +451,36 @@ class DatabaseManager:
         """Convert SQLAlchemy User to Pydantic."""
         return sqlalchemy_to_pydantic(db_user)
 
-    def _sqlalchemy_session_to_pydantic(self, db_session: SQLChatSession) -> PydanticChatSession:
+    def _sqlalchemy_session_to_pydantic(self, db_session: SQLChatSession, session: Session = None) -> PydanticChatSession:
         """Convert SQLAlchemy ChatSession to Pydantic."""
+    
+        message_count = 0
+        last_message = None
+        
+        # Если передана сессия, подсчитываем сообщения
+        if session:
+            try:
+                message_count = session.query(SQLChatMessage).filter_by(
+                    chat_id=db_session.id
+                ).count()
+                
+                # Получаем последнее сообщение
+                last_msg = (
+                    session.query(SQLChatMessage)
+                    .filter_by(chat_id=db_session.id)
+                    .order_by(SQLChatMessage.created_at.desc())
+                    .first()
+                )
+                
+                if last_msg:
+                    last_message = last_msg.content[:100]
+                    if len(last_msg.content) > 100:
+                        last_message += "..."
+                        
+            except Exception as e:
+                logger.warning(f"Could not count messages for chat {db_session.id}: {e}")
+                message_count = 1
+
         return PydanticChatSession(
             id=db_session.id,
             user_id=db_session.user_id,
@@ -462,9 +490,67 @@ class DatabaseManager:
             is_archived=db_session.is_archived,
             is_pinned=db_session.is_pinned,
             is_incognito=db_session.is_incognito,
-            message_count=0,  # Заполним позже если нужно
-            last_message=None
+            message_count=message_count,
+            last_message=last_message
         )
+    # def create_chat_session(
+    #         self, 
+    #         user_id: int, 
+    #         title: Optional[str] = None,
+    #         is_incognito: bool = False
+    #     ) -> Optional[PydanticChatSession]:
+    #         """Create new chat session."""
+    #         try:
+    #             with self.get_session() as session:
+    #                 db_session = SQLChatSession(
+    #                     user_id=user_id,
+    #                     title=title or f"Chat {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+    #                     is_incognito=is_incognito
+    #                 )
+                    
+    #                 session.add(db_session)
+    #                 session.flush()
+    #                 session.refresh(db_session)
+                    
+    #                 logger.info(f"Created chat session {db_session.id}")
+    #                 # ✅ Передаем session в конвертер
+    #                 return self._sqlalchemy_session_to_pydantic(db_session, session)
+                    
+    #         except Exception as e:
+    #             logger.error(f"Error creating chat session: {e}")
+    #             return None
+
+    # def update_chat_session(
+    #     self,
+    #     chat_id: int,
+    #     title: Optional[str] = None,
+    #     is_archived: Optional[bool] = None,
+    #     is_pinned: Optional[bool] = None
+    # ) -> Optional[PydanticChatSession]:
+    #     """Update chat session."""
+    #     try:
+    #         with self.get_session() as session:
+    #             chat = session.query(SQLChatSession).filter_by(id=chat_id).first()
+    #             if not chat:
+    #                 return None
+                
+    #             if title is not None:
+    #                 chat.title = title
+    #             if is_archived is not None:
+    #                 chat.is_archived = is_archived
+    #             if is_pinned is not None:
+    #                 chat.is_pinned = is_pinned
+                    
+    #             chat.updated_at = datetime.utcnow()
+    #             session.flush()
+    #             session.refresh(chat)
+                
+    #             # Передаем session в конвертер
+    #             return self._sqlalchemy_session_to_pydantic(chat, session)
+                
+    #     except Exception as e:
+    #         logger.error(f"Error updating chat {chat_id}: {e}")
+    #         return None
 
     def _sqlalchemy_message_to_pydantic(self, db_message: SQLChatMessage) -> PydanticMessage:
         """Convert SQLAlchemy ChatMessage to Pydantic."""
