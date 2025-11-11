@@ -61,7 +61,6 @@ class DataService:
     ) -> List[Dict[str, Any]]:
         """
         Поиск похожих документов по запросу.
-      
         
         Args:
             query: Поисковый запрос

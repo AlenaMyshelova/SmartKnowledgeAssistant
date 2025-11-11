@@ -453,20 +453,6 @@ class DatabaseManager:
 
     def _sqlalchemy_session_to_pydantic(self, db_session: SQLChatSession) -> PydanticChatSession:
         """Convert SQLAlchemy ChatSession to Pydantic."""
-        # Count messages
-        with self.get_session() as session:
-            message_count = session.query(SQLChatMessage).filter_by(
-                chat_id=db_session.id
-            ).count()
-            
-            # Get last message
-            last_msg = (
-                session.query(SQLChatMessage)
-                .filter_by(chat_id=db_session.id)
-                .order_by(SQLChatMessage.created_at.desc())
-                .first()
-            )
-        
         return PydanticChatSession(
             id=db_session.id,
             user_id=db_session.user_id,
@@ -476,8 +462,8 @@ class DatabaseManager:
             is_archived=db_session.is_archived,
             is_pinned=db_session.is_pinned,
             is_incognito=db_session.is_incognito,
-            message_count=message_count,
-            last_message=last_msg.content[:100] if last_msg else None
+            message_count=0,  # Заполним позже если нужно
+            last_message=None
         )
 
     def _sqlalchemy_message_to_pydantic(self, db_message: SQLChatMessage) -> PydanticMessage:

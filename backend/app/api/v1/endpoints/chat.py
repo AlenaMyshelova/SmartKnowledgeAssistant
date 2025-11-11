@@ -55,7 +55,7 @@ async def send_message(
     request: ChatRequest,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user)
-    # ✅ Убрали db: Session = Depends(get_db)
+ 
 ):
     """
     Send a message and get AI response.
@@ -154,7 +154,7 @@ async def send_message(
                     raise HTTPException(status_code=500, detail="Failed to create chat")
                 request.chat_id = chat.id
             else:
-                # ✅ Verify chat exists and user owns it
+                # Verify chat exists and user owns it
                 sessions = db_manager.get_user_chat_sessions(
                     user_id=current_user.id,
                     limit=1000
@@ -162,14 +162,14 @@ async def send_message(
                 if not any(s.id == request.chat_id for s in sessions):
                     raise HTTPException(status_code=403, detail="Access denied or chat not found")
             
-            # ✅ Save user message to database
+            # Save user message to database
             user_msg = db_manager.add_message_to_chat(
                 chat_id=request.chat_id,
                 role="user",
                 content=request.message
             )
             
-            # ✅ Get context messages from database  
+            #  Get context messages from database  
             context_messages = db_manager.get_chat_messages(
                 chat_id=request.chat_id,
                 limit=request.context_messages
@@ -196,7 +196,7 @@ async def send_message(
                     top_k=3
                 )
             
-            # ✅ Save assistant response to database
+            #  Save assistant response to database
             assistant_msg = db_manager.add_message_to_chat(
                 chat_id=request.chat_id,
                 role="assistant",
@@ -210,7 +210,7 @@ async def send_message(
             
             processing_time = time.time() - start_time
             
-            # ✅ Log chat for statistics (if method exists)
+            # Log chat for statistics (if method exists)
             if not request.is_incognito:
                 db_manager.log_chat(
                     user_message=request.message,
@@ -250,14 +250,14 @@ async def get_chat_sessions(
     include_incognito: bool = Query(False),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100)
-    # ✅ Убрали db: Session = Depends(get_db)
+
 ):
     """
     Get user's chat sessions from database.
     Optionally include incognito sessions from memory.
     """
     try:
-        # ✅ Get regular chats from database
+        # Get regular chats from database
         db_chats = db_manager.get_user_chat_sessions(
             user_id=current_user.id,
             include_archived=include_archived,
@@ -369,7 +369,7 @@ async def get_chat_history(
         
         # Handle regular database chats
         else:
-            # ✅ Verify ownership
+            # Verify ownership
             sessions = db_manager.get_user_chat_sessions(
                 user_id=current_user.id,
                 limit=1000
@@ -384,7 +384,7 @@ async def get_chat_history(
             if not chat_session:
                 raise HTTPException(status_code=404, detail="Chat not found or access denied")
             
-            # ✅ Get messages from database
+            # Get messages from database
             db_messages = db_manager.get_chat_messages(
                 chat_id=chat_id,
                 limit=limit or 100,
@@ -432,7 +432,7 @@ async def get_chat_history(
 async def create_chat_session(
     request: ChatSessionCreate = None,
     current_user: User = Depends(get_current_user)
-    # ✅ Убрали db: Session = Depends(get_db)
+   
 ):
     """
     Create a new chat session.
@@ -467,7 +467,7 @@ async def create_chat_session(
                 "title": INCOGNITO_CHATS[chat_id]["title"]
             }
         
-        # ✅ Create regular database chat
+        #  Create regular database chat
         else:
             chat = db_manager.create_chat_session(
                 user_id=current_user.id,
@@ -501,7 +501,7 @@ async def update_chat_session(
     chat_id: int,
     request: UpdateChatRequest,
     current_user: User = Depends(get_current_user)
-    # ✅ Убрали db: Session = Depends(get_db)
+     
 ):
     """
     Update chat session properties.
@@ -514,7 +514,7 @@ async def update_chat_session(
                 detail="Cannot update incognito chat - it's temporary"
             )
         
-        # ✅ Verify ownership
+        #  Verify ownership
         sessions = db_manager.get_user_chat_sessions(
             user_id=current_user.id,
             limit=1000
@@ -523,7 +523,7 @@ async def update_chat_session(
         if not any(s.id == chat_id for s in sessions):
             raise HTTPException(status_code=404, detail="Chat not found or access denied")
         
-        # ✅ Update chat
+        # Update chat
         updated_chat = db_manager.update_chat_session(
             chat_id=chat_id,
             title=request.title,
@@ -563,7 +563,7 @@ async def delete_chat_session(
             del INCOGNITO_CHATS[chat_id]
             return {"message": "Incognito chat cleared from memory"}
         
-        # ✅ Handle regular database chat deletion
+        # Handle regular database chat deletion
         else:
             sessions = db_manager.get_user_chat_sessions(
                 user_id=current_user.id,
@@ -597,13 +597,13 @@ async def search_chats(
     include_archived: bool = Query(False),
     limit: int = Query(50, ge=1, le=200),
     current_user: User = Depends(get_current_user)
-    # ✅ Убрали db: Session = Depends(get_db)
+ 
 ):
     """
     Search in user's chat history.
     """
     try:
-        # ✅ Search in database chats
+        #  Search in database chats
         db_results = db_manager.search_chats(
             user_id=current_user.id,
             query=query,
@@ -621,13 +621,13 @@ async def search_chats(
 async def search_chats_advanced(
     request: SearchChatsRequest,
     current_user: User = Depends(get_current_user)
-    # ✅ Убрали db: Session = Depends(get_db)
+   
 ):
     """
     Advanced search in user's chats.
     """
     try:
-        # ✅ Search in database
+        #  Search in database
         results = db_manager.search_chats(
             user_id=current_user.id,
             query=request.query,
@@ -648,13 +648,13 @@ async def search_chats_advanced(
 @router.get("/mode/status", response_model=ChatModeStatus)
 async def get_chat_mode_status(
     current_user: User = Depends(get_current_user)
-    # ✅ Убрали db: Session = Depends(get_db)
+    
 ):
     """
     Get current chat mode status and statistics.
     """
     try:
-        # ✅ Get regular chats count from database
+        #  Get regular chats count from database
         sessions = db_manager.get_user_chat_sessions(
             user_id=current_user.id,
             include_archived=True,
