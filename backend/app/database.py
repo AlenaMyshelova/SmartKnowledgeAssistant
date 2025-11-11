@@ -480,6 +480,9 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"Could not count messages for chat {db_session.id}: {e}")
                 message_count = 1
+        else:
+        #  Если session не передана, ставим 1 чтобы показать чат  
+             message_count = 1        
 
         return PydanticChatSession(
             id=db_session.id,
