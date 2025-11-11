@@ -177,6 +177,69 @@ Response Style:
         except Exception as e:
             logger.error(f"Error generating chat response for chat {chat_id}: {e}")
             return None
+        
+    async def get_chat_response(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.7,
+        model: str = "gpt-3.5-turbo"
+    ) -> Dict[str, Any]:
+        """
+        Compatibility method for chat.py
+        Returns response in format: {content, tokens_used, model}
+        """
+        try:
+            if not messages:
+                return {
+                    "content": "No messages to process",
+                    "tokens_used": 0,
+                    "model": model
+                }
+            
+            # Extract user message and chat history
+            user_message = ""
+            chat_history = []
+            
+            # Find the last user message
+            for i in range(len(messages) - 1, -1, -1):
+                msg = messages[i]
+                if msg.get("role") == "user":
+                    user_message = msg.get("content", "")
+                    chat_history = messages[:i]
+                    break
+            
+            # If no user message found, take the last message
+            if not user_message and messages:
+                user_message = messages[-1].get("content", "")
+                chat_history = messages[:-1]
+            
+            # Get response using existing method
+            response_text = await self.generate_response(
+                query=user_message,
+                chat_history=chat_history,
+                temperature=temperature,
+                model=model,
+                use_structured_prompts=True
+            )
+            
+            # Calculate total tokens
+            total_tokens = sum(self.count_tokens(msg.get("content", "")) for msg in messages)
+            if response_text:
+                total_tokens += self.count_tokens(response_text)
+            
+            return {
+                "content": response_text or "Sorry, could not generate response",
+                "tokens_used": total_tokens,
+                "model": model
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in get_chat_response: {e}")
+            return {
+                "content": "Error processing request",
+                "tokens_used": 0,
+                "model": model
+            }    
     
     async def generate_summary(self, messages: List[Dict[str, str]]) -> Optional[str]:
         """

@@ -53,7 +53,61 @@ class DataService:
             Список релевантных FAQ записей
         """
         return self.data_manager.search_faqs(query, limit)
-    
+    async def search_similar(
+        self,
+        query: str,
+        data_source: str = "company_faqs",
+        top_k: int = 3
+    ) -> List[Dict[str, Any]]:
+        """
+        Поиск похожих документов по запросу.
+      
+        
+        Args:
+            query: Поисковый запрос
+            data_source: Источник данных (company_faqs, uploaded_files, etc.)
+            top_k: Количество результатов
+            
+        Returns:
+            Список релевантных документов
+        """
+        try:
+            if data_source == "company_faqs":
+                # Используем существующий метод поиска FAQ
+                results = self.search_faqs(query, top_k)
+                
+                # Преобразуем в ожидаемый формат
+                sources = []
+                for faq in results:
+                    sources.append({
+                        "content": f"Q: {faq.get('question', '')}\nA: {faq.get('answer', '')}",
+                        "source": "company_faqs",
+                        "category": faq.get('category', 'general'),
+                        "relevance": faq.get('score', 0.8),
+                        "metadata": {
+                            "question": faq.get('question', ''),
+                            "answer": faq.get('answer', ''),
+                            "category": faq.get('category', '')
+                        }
+                    })
+                
+                return sources
+                
+            elif data_source == "uploaded_files":
+                # Пока возвращаем пустой список - можно расширить позже
+                return []
+                
+            else:
+                # Для general_knowledge возвращаем пустой список
+                return []
+                
+        except Exception as e:
+            # Логируем ошибку, но не прерываем работу чата
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error in search_similar: {e}")
+            return []
+
     def get_data_statistics(self) -> Dict[str, Any]:
         """
         Получение статистики по данным.
