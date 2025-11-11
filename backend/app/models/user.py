@@ -6,19 +6,19 @@ class UserBase(BaseModel):
     email: EmailStr
     name: str
     is_active: bool = True
-    avatar_url: Optional[str] = None  # Добавлено для аватара из OAuth
+    avatar_url: Optional[str] = None
 
 class UserCreate(UserBase):
     # Для OAuth аутентификации
     oauth_provider: str  # "google", "github"
     oauth_id: str  # ID пользователя у провайдера
-    provider_data: Optional[Dict[str, Any]] = None  # Дополнительные данные от провайдера
+    provider_data: Optional[Dict[str, Any]] = None
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     name: Optional[str] = None
     is_active: Optional[bool] = None
-    avatar_url: Optional[str] = None  # Добавлено
+    avatar_url: Optional[str] = None
 
 class UserInDB(UserBase):
     id: int
@@ -28,11 +28,14 @@ class UserInDB(UserBase):
     last_login: Optional[datetime] = None
 
     class Config:
-        orm_mode = True  # Для совместимости с SQLAlchemy
-        from_attributes = True  # Для Pydantic v2
+        from_attributes = True  # Для Pydantic v2 + SQLAlchemy
 
 class User(UserInDB):
-    pass  # Наследуем все от UserInDB
+    pass
+
+
+
+
 
 class TokenData(BaseModel):
     sub: str  # ID пользователя
@@ -47,11 +50,26 @@ class Token(BaseModel):
     expires_at: int  # Unix timestamp
     user: UserBase
 
-# Дополнительно для OAuth - информация о провайдере
+# Additional models for OAuth - provider information
 class OAuthProvider(BaseModel):
-    name: str  # Название провайдера (google, github)
-    display_name: str  # Отображаемое название (Google, GitHub)
-    icon: Optional[str] = None  # URL иконки (опционально)
+    name: str  # Provider name (google, github)
+    display_name: str  # Display name (Google, GitHub)
+    icon: Optional[str] = None  # Icon URL (optional)
 
 class OAuthProvidersResponse(BaseModel):
     providers: List[OAuthProvider]
+
+
+def sqlalchemy_to_pydantic(db_user) -> User:
+    """Convert SQLAlchemy User model to Pydantic User model."""
+    return User(
+        id=db_user.id,
+        email=db_user.email,
+        name=db_user.name,
+        avatar_url=db_user.avatar_url,
+        oauth_provider=db_user.oauth_provider,
+        oauth_id=db_user.oauth_id,
+        is_active=db_user.is_active,
+        created_at=db_user.created_at,
+        last_login=db_user.last_login
+    )

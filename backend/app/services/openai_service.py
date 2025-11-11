@@ -23,7 +23,7 @@ class OpenAIService:
         Args:
             user_message: Сообщение пользователя
             context: Контекст из базы знаний
-            scarcity_note: Заметка o недостатке данных
+            scarcity_note: Заметка о недостатке данных
             
         Returns:
             Ответ от ChatGPT
