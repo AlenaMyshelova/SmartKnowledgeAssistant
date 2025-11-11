@@ -87,5 +87,6 @@ class Settings(BaseSettings):
             }
 
         return providers
+    
 
 settings = Settings()

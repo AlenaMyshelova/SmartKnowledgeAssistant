@@ -1,4 +1,5 @@
 from __future__ import annotations
+from asyncio.log import logger
 from app.vector_search import vector_search
 
 from pathlib import Path
@@ -23,20 +24,22 @@ class DataManager:
 
     def __init__(
         self,
-        # Путь по умолчанию: ../data/company_faqs.csv относительно данного файла
-        company_faqs_relpath: str = "../data/company_faqs.csv",
+        company_faqs_relpath: str = "./data/company_faqs.csv",
         encoding: str = "utf-8",
     ) -> None:
         self.encoding = encoding
         self.data_sources: Dict[str, pd.DataFrame] = {}
         
         # Абсолютный путь к CSV относительно местоположения этого файла
-        base_dir = Path(__file__).resolve().parent
-        self.company_faqs_path: Path = (base_dir / company_faqs_relpath).resolve()
+        current_file = Path(__file__).resolve()
+        backend_dir = current_file.parent.parent  # app/ -> backend/
+        self.company_faqs_path: Path = (backend_dir / company_faqs_relpath).resolve()
         
         # Директория для загружаемых пользователями файлов
-        self.upload_dir = Path(company_faqs_relpath).parent / "uploaded_files"
+        self.upload_dir = backend_dir / "data" / "uploaded_files"
         self.upload_dir.mkdir(exist_ok=True, parents=True)
+
+        logger.info(f"FAQ path: {self.company_faqs_path}") 
 
         # Разрешаем переопределение путей через переменные окружения (опционально)
         env_override = os.getenv("COMPANY_FAQS_PATH")

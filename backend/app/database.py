@@ -1,466 +1,582 @@
 from __future__ import annotations
 
-import sqlite3
-import pandas as pd
 import json
+import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from contextlib import contextmanager
 
-from app.models.user import UserCreate, User, UserUpdate
+# SQLAlchemy imports
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.exc import SQLAlchemyError
+
+# Import models
+from app.models.database_models import (
+    Base, 
+    User as SQLUser, 
+    ChatSession as SQLChatSession, 
+    ChatMessage as SQLChatMessage, 
+    ChatLog as SQLChatLog
+)
+from app.models.user import UserCreate, User as PydanticUser, UserUpdate, sqlalchemy_to_pydantic
+from app.models.chat import (
+    ChatSession as PydanticChatSession, 
+    ChatMessage as PydanticMessage,
+    ChatSessionCreate,
+    MessageCreate
+)
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
     """
-    Класс для управления SQLite-базой данных внутреннего ассистента.
-    Управляет пользователями, сессиями и логами чатов.
+    DatabaseManager with SQLAlchemy and Alembic support.
+    All operations use SQLAlchemy ORM.
     """
 
-    def __init__(self, db_path: str = "../data/assistant.db") -> None:
-        # Абсолютный путь к базе относительно этого файла
-        base_dir = Path(__file__).resolve().parent
-        self.db_path: Path = (base_dir / db_path).resolve()
-
-        # Гарантируем существование каталога
+    def __init__(self, db_path: str = "./data/assistant.db") -> None:
+        # Calculate absolute path
+        current_file = Path(__file__).resolve()
+        backend_dir = current_file.parent.parent  # app/ -> backend/
+        
+        self.db_path: Path = (backend_dir / db_path).resolve()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Инициализация таблицы
-        self.init_database()
+        # SQLAlchemy setup
+        self.db_url = f"sqlite:///{self.db_path}"
+        logger.info(f"Database path: {self.db_path}")
 
-    # ---------------------------
-    # Создание таблиц при запуске
-    # ---------------------------
-    def init_database(self) -> None:
-        """Создание необходимых таблиц, если они отсутствуют."""
+        self.engine = create_engine(
+            self.db_url,
+            echo=False,
+            connect_args={"check_same_thread": False}
+        )
+        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+        
+        # Apply migrations
+        self._check_and_apply_migrations()
+
+    @contextmanager
+    def get_session(self) -> Session:
+        """Get SQLAlchemy session with automatic cleanup."""
+        session = self.SessionLocal()
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def _check_and_apply_migrations(self) -> None:
+        """Check and apply Alembic migrations."""
+        try:
+            from app.database.migration_manager import initialize_migration_manager, get_migration_manager
+            
+            if get_migration_manager() is None:
+                initialize_migration_manager(self.db_url)
+            
+            migration_manager = get_migration_manager()
+            if migration_manager and not migration_manager.is_database_up_to_date():
+                logger.info("Applying pending migrations...")
+                migration_manager.upgrade_database()
+                logger.info("Migrations applied successfully")
                 
-                # Создаем таблицу пользователей (для OAuth)
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    email TEXT UNIQUE NOT NULL,
-                    name TEXT NOT NULL,
-                    avatar_url TEXT,
-                    oauth_provider TEXT NOT NULL,
-                    oauth_id TEXT NOT NULL,
-                    provider_data TEXT,
-                    is_active BOOLEAN DEFAULT TRUE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_login TIMESTAMP,
-                    UNIQUE(oauth_provider, oauth_id)
-                )
-                """)
-                
-                # Создаем таблицу сессий чата
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS chat_sessions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    session_id TEXT UNIQUE NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (id)
-                )
-                """)
-                
-                # Создаем таблицу для сообщений чата
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS chat_messages (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT NOT NULL,
-                    user_id INTEGER,
-                    message_type TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    data_source TEXT,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (id),
-                    FOREIGN KEY (session_id) REFERENCES chat_sessions (session_id)
-                )
-                """)
-                
-                # Совместимость с существующей структурой
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS chat_logs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_message TEXT NOT NULL,
-                    assistant_response TEXT NOT NULL,
-                    data_source TEXT,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-                """)
-                
-                conn.commit()
-                
+        except ImportError:
+            logger.warning("Migration manager not available, creating tables directly...")
+            # Fallback: create tables using SQLAlchemy
+            Base.metadata.create_all(bind=self.engine)
         except Exception as e:
-            print(f"[DatabaseManager] Error initializing database: {e}")
+            logger.error(f"Migration check failed: {e}")
 
     # ---------------------------
-    # Управление пользователями
+    # User Management
     # ---------------------------
     
-    def create_user(self, user_data: UserCreate) -> Optional[User]:
-        """Создание нового пользователя."""
+    def create_user(self, user_data: UserCreate) -> Optional[PydanticUser]:
+        """Create a new user."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
+            with self.get_session() as session:
+                # Check existing
+                existing_user = session.query(SQLUser).filter_by(
+                    oauth_provider=user_data.oauth_provider,
+                    oauth_id=user_data.oauth_id
+                ).first()
                 
-                # Проверяем, существует ли пользователь с такими oauth_provider и oauth_id
-                existing_user = self.get_user_by_oauth_id(user_data.oauth_provider, user_data.oauth_id)
                 if existing_user:
-                    return existing_user
+                    return self._sqlalchemy_user_to_pydantic(existing_user)
                 
-                cursor.execute("""
-                INSERT INTO users (email, name, avatar_url, oauth_provider, oauth_id, provider_data)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    user_data.email,
-                    user_data.name,
-                    user_data.avatar_url,
-                    user_data.oauth_provider,
-                    user_data.oauth_id,
-                    json.dumps(user_data.provider_data) if user_data.provider_data else None
-                ))
-                
-                conn.commit()
-                user_id = cursor.lastrowid
-                
-                return self.get_user_by_id(user_id)
-                
-        except sqlite3.IntegrityError as e:
-            print(f"[DatabaseManager] Error creating user (integrity constraint): {e}")
-            return None
-        except Exception as e:
-            print(f"[DatabaseManager] Error creating user: {e}")
-            return None
-    
-    def get_user_by_id(self, user_id: int) -> Optional[User]:
-        """Получение пользователя по ID."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
-                row = cursor.execute(
-                    "SELECT * FROM users WHERE id = ? AND is_active = TRUE",
-                    (user_id,)
-                ).fetchone()
-                
-                if row:
-                    return User(
-                        id=row["id"],
-                        email=row["email"],
-                        name=row["name"],
-                        avatar_url=row["avatar_url"],
-                        oauth_provider=row["oauth_provider"],
-                        oauth_id=row["oauth_id"],
-                        is_active=bool(row["is_active"]),
-                        created_at=self._parse_datetime(row["created_at"]),
-                        last_login=self._parse_datetime(row["last_login"]) if row["last_login"] else None
-                    )
-                return None
-                
-        except Exception as e:
-            print(f"[DatabaseManager] Error getting user by ID: {e}")
-            return None
-    
-    def get_user_by_oauth_id(self, provider: str, oauth_id: str) -> Optional[User]:
-        """Получение пользователя по провайдеру и oauth_id."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
-                row = cursor.execute(
-                    "SELECT * FROM users WHERE oauth_provider = ? AND oauth_id = ? AND is_active = TRUE",
-                    (provider, oauth_id)
-                ).fetchone()
-                
-                if row:
-                    return User(
-                        id=row["id"],
-                        email=row["email"],
-                        name=row["name"],
-                        avatar_url=row["avatar_url"],
-                        oauth_provider=row["oauth_provider"],
-                        oauth_id=row["oauth_id"],
-                        is_active=bool(row["is_active"]),
-                        created_at=self._parse_datetime(row["created_at"]),
-                        last_login=self._parse_datetime(row["last_login"]) if row["last_login"] else None
-                    )
-                return None
-                
-        except Exception as e:
-            print(f"[DatabaseManager] Error getting user by OAuth ID: {e}")
-            return None
-    
-    def update_last_login(self, user_id: int) -> bool:
-        """Обновление времени последнего входа."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?",
-                    (user_id,)
+                # Create new
+                db_user = SQLUser(
+                    email=user_data.email,
+                    name=user_data.name,
+                    avatar_url=user_data.avatar_url,
+                    oauth_provider=user_data.oauth_provider,
+                    oauth_id=user_data.oauth_id,
+                    provider_data=json.dumps(user_data.provider_data) if user_data.provider_data else None,
+                    is_active=user_data.is_active
                 )
-                conn.commit()
-                return cursor.rowcount > 0
-        except Exception as e:
-            print(f"[DatabaseManager] Error updating last login: {e}")
-            return False
-    
-    def update_user(self, user_id: int, update_data: UserUpdate) -> Optional[User]:
-        """Обновление данных пользователя."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
                 
-                # Создаем динамический SQL запрос на основе переданных полей
-                update_fields = []
-                values = []
+                session.add(db_user)
+                session.flush()
+                session.refresh(db_user)
                 
-                if update_data.email is not None:
-                    update_fields.append("email = ?")
-                    values.append(update_data.email)
-                
-                if update_data.name is not None:
-                    update_fields.append("name = ?")
-                    values.append(update_data.name)
-                
-                if update_data.avatar_url is not None:
-                    update_fields.append("avatar_url = ?")
-                    values.append(update_data.avatar_url)
-                
-                if update_data.is_active is not None:
-                    update_fields.append("is_active = ?")
-                    values.append(update_data.is_active)
-                
-                if not update_fields:
-                    return self.get_user_by_id(user_id)  # Нечего обновлять
-                
-                # Добавляем ID пользователя в конец values
-                values.append(user_id)
-                
-                # Строим и выполняем SQL запрос
-                query = f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?"
-                cursor.execute(query, values)
-                conn.commit()
-                
-                # Возвращаем обновленного пользователя
-                return self.get_user_by_id(user_id)
+                logger.info(f"Created user: {user_data.email}")
+                return self._sqlalchemy_user_to_pydantic(db_user)
                 
         except Exception as e:
-            print(f"[DatabaseManager] Error updating user: {e}")
+            logger.error(f"Error creating user: {e}")
             return None
+
+    def get_user_by_id(self, user_id: int) -> Optional[PydanticUser]:
+        """Get user by ID."""
+        try:
+            with self.get_session() as session:
+                db_user = session.query(SQLUser).filter_by(
+                    id=user_id, 
+                    is_active=True
+                ).first()
+                
+                return self._sqlalchemy_user_to_pydantic(db_user) if db_user else None
+                
+        except Exception as e:
+            logger.error(f"Error getting user {user_id}: {e}")
+            return None
+
+    def get_user_by_oauth_id(self, provider: str, oauth_id: str) -> Optional[PydanticUser]:
+        """Get user by OAuth credentials."""
+        try:
+            with self.get_session() as session:
+                db_user = session.query(SQLUser).filter_by(
+                    oauth_provider=provider,
+                    oauth_id=oauth_id,
+                    is_active=True
+                ).first()
+                
+                return self._sqlalchemy_user_to_pydantic(db_user) if db_user else None
+                
+        except Exception as e:
+            logger.error(f"Error getting user {provider}:{oauth_id}: {e}")
+            return None
+
+    def update_last_login(self, user_id: int) -> bool:
+        """Update last login timestamp."""
+        try:
+            with self.get_session() as session:
+                session.query(SQLUser).filter_by(id=user_id).update(
+                    {"last_login": datetime.utcnow()}
+                )
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error updating last login: {e}")
+            return False
+
+    # ---------------------------
+    # Chat Management
+    # ---------------------------
     
+    def create_chat_session(
+        self, 
+        user_id: int, 
+        title: Optional[str] = None,
+        is_incognito: bool = False
+    ) -> Optional[PydanticChatSession]:
+        """Create new chat session."""
+        try:
+            with self.get_session() as session:
+                db_session = SQLChatSession(
+                    user_id=user_id,
+                    title=title or f"Chat {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                    is_incognito=is_incognito
+                )
+                
+                session.add(db_session)
+                session.flush()
+                session.refresh(db_session)
+                
+                logger.info(f"Created chat session {db_session.id}")
+                return self._sqlalchemy_session_to_pydantic(db_session)
+                
+        except Exception as e:
+            logger.error(f"Error creating chat session: {e}")
+            return None
+
+    def update_chat_session(
+        self,
+        chat_id: int,
+        title: Optional[str] = None,
+        is_archived: Optional[bool] = None,
+        is_pinned: Optional[bool] = None
+    ) -> Optional[PydanticChatSession]:
+        """Update chat session."""
+        try:
+            with self.get_session() as session:
+                chat = session.query(SQLChatSession).filter_by(id=chat_id).first()
+                if not chat:
+                    return None
+                
+                if title is not None:
+                    chat.title = title
+                if is_archived is not None:
+                    chat.is_archived = is_archived
+                if is_pinned is not None:
+                    chat.is_pinned = is_pinned
+                    
+                chat.updated_at = datetime.utcnow()
+                session.flush()
+                session.refresh(chat)
+                
+                return self._sqlalchemy_session_to_pydantic(chat)
+                
+        except Exception as e:
+            logger.error(f"Error updating chat {chat_id}: {e}")
+            return None
+
+    def delete_chat_session(self, chat_id: int) -> bool:
+        """Delete chat session and all messages."""
+        try:
+            with self.get_session() as session:
+                chat = session.query(SQLChatSession).filter_by(id=chat_id).first()
+                if chat:
+                    session.delete(chat)  # CASCADE will delete messages
+                    return True
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error deleting chat {chat_id}: {e}")
+            return False
+
+    def add_message_to_chat(
+        self, 
+        chat_id: int, 
+        role: str, 
+        content: str, 
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Optional[PydanticMessage]:
+        """Add message to chat."""
+        try:
+            with self.get_session() as session:
+                db_message = SQLChatMessage(
+                    chat_id=chat_id,
+                    role=role,
+                    content=content,
+                    message_metadata=json.dumps(metadata) if metadata else None
+                )
+                
+                session.add(db_message)
+                session.flush()
+                session.refresh(db_message)
+                
+                # Update chat's updated_at
+                session.query(SQLChatSession).filter_by(id=chat_id).update(
+                    {"updated_at": datetime.utcnow()}
+                )
+                
+                return self._sqlalchemy_message_to_pydantic(db_message)
+                
+        except Exception as e:
+            logger.error(f"Error adding message: {e}")
+            return None
+
+    def get_user_chat_sessions(
+        self, 
+        user_id: int,
+        include_archived: bool = False,
+        limit: int = 20,
+        offset: int = 0
+    ) -> List[PydanticChatSession]:
+        """Get user's chat sessions."""
+        try:
+            with self.get_session() as session:
+                query = session.query(SQLChatSession).filter_by(user_id=user_id)
+                
+                if not include_archived:
+                    query = query.filter_by(is_archived=False)
+                
+                # Pinned first, then by updated_at
+                db_sessions = (
+                    query.order_by(
+                        SQLChatSession.is_pinned.desc(),
+                        SQLChatSession.updated_at.desc()
+                    )
+                    .offset(offset)
+                    .limit(limit)
+                    .all()
+                )
+                
+                return [self._sqlalchemy_session_to_pydantic(s, session) for s in db_sessions]
+                
+        except Exception as e:
+            logger.error(f"Error getting sessions: {e}")
+            return []
+
+    def get_chat_messages(
+        self, 
+        chat_id: int, 
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[PydanticMessage]:
+        """Get chat messages."""
+        try:
+            with self.get_session() as session:
+                db_messages = (
+                    session.query(SQLChatMessage)
+                    .filter_by(chat_id=chat_id)
+                    .order_by(SQLChatMessage.created_at.asc())
+                    .offset(offset)
+                    .limit(limit)
+                    .all()
+                )
+                
+                return [self._sqlalchemy_message_to_pydantic(msg) for msg in db_messages]
+                
+        except Exception as e:
+            logger.error(f"Error getting messages: {e}")
+            return []
+
+    def search_chats(
+        self,
+        user_id: int,
+        query: str,
+        include_archived: bool = False,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """Search in user's chats."""
+        try:
+            with self.get_session() as session:
+                # Search in titles
+                chats_query = session.query(SQLChatSession).filter(
+                    SQLChatSession.user_id == user_id,
+                    SQLChatSession.title.contains(query)
+                )
+                
+                if not include_archived:
+                    chats_query = chats_query.filter_by(is_archived=False)
+                
+                results = []
+                
+                # Add matching chats
+                for chat in chats_query.limit(limit).all():
+                    results.append({
+                        "id": chat.id,
+                        "title": chat.title,
+                        "updated_at": chat.updated_at,
+                        "match_type": "title"
+                    })
+                
+                # Search in messages if we need more results
+                if len(results) < limit:
+                    messages_query = (
+                        session.query(SQLChatMessage)
+                        .join(SQLChatSession)
+                        .filter(
+                            SQLChatSession.user_id == user_id,
+                            SQLChatMessage.content.contains(query)
+                        )
+                    )
+                    
+                    if not include_archived:
+                        messages_query = messages_query.filter(
+                            SQLChatSession.is_archived == False
+                        )
+                    
+                    seen_chats = {r["id"] for r in results}
+                    
+                    for msg in messages_query.limit(limit - len(results)).all():
+                        if msg.chat_id not in seen_chats:
+                            results.append({
+                                "id": msg.chat.id,
+                                "title": msg.chat.title,
+                                "updated_at": msg.chat.updated_at,
+                                "match_type": "message",
+                                "matched_content": msg.content[:100]
+                            })
+                            seen_chats.add(msg.chat_id)
+                
+                return results[:limit]
+                
+        except Exception as e:
+            logger.error(f"Error searching chats: {e}")
+            return []
+
     # ---------------------------
-    # Логирование чатов (старый способ)
+    # Legacy Support (minimal)
     # ---------------------------
+    
     def log_chat(
         self,
         user_message: str,
         assistant_response: str,
         data_source: Optional[str] = None,
     ) -> None:
-        """Добавляет запись в таблицу chat_logs (для обратной совместимости)."""
+        """Legacy: Add to chat_logs table."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    INSERT INTO chat_logs (user_message, assistant_response, data_source)
-                    VALUES (?, ?, ?)
-                    """,
-                    (user_message, assistant_response, data_source),
+            with self.get_session() as session:
+                log_entry = SQLChatLog(
+                    user_message=user_message,
+                    assistant_response=assistant_response,
+                    data_source=data_source
                 )
-                conn.commit()
+                session.add(log_entry)
+                
         except Exception as e:
-            print(f"[DatabaseManager] Error logging chat: {e}")
-    
-    # ---------------------------
-    # Управление чатами (новый способ)
-    # ---------------------------
-    def create_chat_session(self, session_id: str, user_id: Optional[int] = None) -> bool:
-        """Создание новой сессии чата."""
+            logger.error(f"Error logging chat: {e}")
+
+    def get_database_stats(self) -> Dict[str, int]:
+        """Get database statistics."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    INSERT INTO chat_sessions (session_id, user_id)
-                    VALUES (?, ?)
-                    """,
-                    (session_id, user_id),
+            with self.get_session() as session:
+                stats = {
+                    "users": session.query(SQLUser).count(),
+                    "chat_sessions": session.query(SQLChatSession).count(),
+                    "chat_messages": session.query(SQLChatMessage).count(),
+                    "chat_logs": session.query(SQLChatLog).count(),
+                }
+                return stats
+                
+        except Exception as e:
+            logger.error(f"Error getting stats: {e}")
+            return {}
+
+    # ---------------------------
+    # Helpers
+    # ---------------------------
+    
+    def _sqlalchemy_user_to_pydantic(self, db_user: SQLUser) -> PydanticUser:
+        """Convert SQLAlchemy User to Pydantic."""
+        return sqlalchemy_to_pydantic(db_user)
+
+    def _sqlalchemy_session_to_pydantic(self, db_session: SQLChatSession, session: Session = None) -> PydanticChatSession:
+        """Convert SQLAlchemy ChatSession to Pydantic."""
+    
+        message_count = 0
+        last_message = None
+        
+        # Если передана сессия, подсчитываем сообщения
+        if session:
+            try:
+                message_count = session.query(SQLChatMessage).filter_by(
+                    chat_id=db_session.id
+                ).count()
+                
+                # Получаем последнее сообщение
+                last_msg = (
+                    session.query(SQLChatMessage)
+                    .filter_by(chat_id=db_session.id)
+                    .order_by(SQLChatMessage.created_at.desc())
+                    .first()
                 )
-                conn.commit()
-                return True
-        except Exception as e:
-            print(f"[DatabaseManager] Error creating chat session: {e}")
-            return False
-    
-    def add_chat_message(
-        self,
-        session_id: str,
-        message_type: str,  # 'user' or 'assistant'
-        content: str,
-        user_id: Optional[int] = None,
-        data_source: Optional[str] = None,
-    ) -> bool:
-        """Добавление сообщения в сессию чата."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    INSERT INTO chat_messages 
-                    (session_id, user_id, message_type, content, data_source)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (session_id, user_id, message_type, content, data_source),
-                )
-                conn.commit()
-                return True
-        except Exception as e:
-            print(f"[DatabaseManager] Error adding chat message: {e}")
-            return False
-    
-    def get_chat_session_messages(self, session_id: str) -> List[Dict[str, Any]]:
-        """Получение всех сообщений сессии чата."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                df = pd.read_sql_query(
-                    """
-                    SELECT * FROM chat_messages
-                    WHERE session_id = ?
-                    ORDER BY timestamp ASC
-                    """,
-                    conn,
-                    params=(session_id,),
-                )
-                return df.to_dict("records")
-        except Exception as e:
-            print(f"[DatabaseManager] Error fetching chat session messages: {e}")
-            return []
-    
-    def get_user_chat_sessions(self, user_id: int) -> List[Dict[str, Any]]:
-        """Получение всех сессий пользователя."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                df = pd.read_sql_query(
-                    """
-                    SELECT * FROM chat_sessions
-                    WHERE user_id = ?
-                    ORDER BY created_at DESC
-                    """,
-                    conn,
-                    params=(user_id,),
-                )
-                return df.to_dict("records")
-        except Exception as e:
-            print(f"[DatabaseManager] Error fetching user chat sessions: {e}")
-            return []
-    
-    # ---------------------------
-    # История чатов (старый способ)
-    # ---------------------------
-    def get_chat_history(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """
-        Возвращает последние N записей из таблицы chat_logs
-        в виде списка словарей (удобно для API).
-        """
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                df = pd.read_sql_query(
-                    "SELECT * FROM chat_logs ORDER BY timestamp DESC LIMIT ?",
-                    conn,
-                    params=(limit,),
-                )
-            return df.to_dict("records")
-        except Exception as e:
-            print(f"[DatabaseManager] Error fetching chat history: {e}")
-            return []
-    
-    # ---------------------------
-    # Вспомогательные методы
-    # ---------------------------
-    def clear_history(self) -> None:
-        """Очистить все записи чатов (опционально для админ-панели)."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute("DELETE FROM chat_logs")
-                conn.execute("DELETE FROM chat_messages")
-                conn.commit()
-        except Exception as e:
-            print(f"[DatabaseManager] Error clearing chat history: {e}")
-    
-    def count_records(self) -> int:
-        """Подсчёт количества записей в журнале."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM chat_logs")
-                (count,) = cursor.fetchone()
-                return int(count)
-        except Exception as e:
-            print(f"[DatabaseManager] Error counting records: {e}")
-            return 0
-    
-    def _parse_datetime(self, datetime_str: Optional[str]) -> Optional[datetime]:
-        """Безопасное преобразование строки в datetime."""
-        if not datetime_str:
-            return None
-        try:
-            # SQLite возвращает даты как строки в разных форматах
-            # Пробуем разные форматы
-            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"):
-                try:
-                    return datetime.strptime(datetime_str, fmt)
-                except ValueError:
-                    continue
-            
-            # Если не получилось, пробуем с ISO форматом
-            return datetime.fromisoformat(datetime_str.replace('Z', '+00:00'))
-        except Exception:
-            return datetime.now()  # В крайнем случае, возвращаем текущую дату
+                
+                if last_msg:
+                    last_message = last_msg.content[:100]
+                    if len(last_msg.content) > 100:
+                        last_message += "..."
+                        
+            except Exception as e:
+                logger.warning(f"Could not count messages for chat {db_session.id}: {e}")
+                message_count = 1
+        else:
+        #  Если session не передана, ставим 1 чтобы показать чат  
+             message_count = 1        
+
+        return PydanticChatSession(
+            id=db_session.id,
+            user_id=db_session.user_id,
+            title=db_session.title,
+            created_at=db_session.created_at,
+            updated_at=db_session.updated_at,
+            is_archived=db_session.is_archived,
+            is_pinned=db_session.is_pinned,
+            is_incognito=db_session.is_incognito,
+            message_count=message_count,
+            last_message=last_message
+        )
+    # def create_chat_session(
+    #         self, 
+    #         user_id: int, 
+    #         title: Optional[str] = None,
+    #         is_incognito: bool = False
+    #     ) -> Optional[PydanticChatSession]:
+    #         """Create new chat session."""
+    #         try:
+    #             with self.get_session() as session:
+    #                 db_session = SQLChatSession(
+    #                     user_id=user_id,
+    #                     title=title or f"Chat {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+    #                     is_incognito=is_incognito
+    #                 )
+                    
+    #                 session.add(db_session)
+    #                 session.flush()
+    #                 session.refresh(db_session)
+                    
+    #                 logger.info(f"Created chat session {db_session.id}")
+    #                 # ✅ Передаем session в конвертер
+    #                 return self._sqlalchemy_session_to_pydantic(db_session, session)
+                    
+    #         except Exception as e:
+    #             logger.error(f"Error creating chat session: {e}")
+    #             return None
+
+    # def update_chat_session(
+    #     self,
+    #     chat_id: int,
+    #     title: Optional[str] = None,
+    #     is_archived: Optional[bool] = None,
+    #     is_pinned: Optional[bool] = None
+    # ) -> Optional[PydanticChatSession]:
+    #     """Update chat session."""
+    #     try:
+    #         with self.get_session() as session:
+    #             chat = session.query(SQLChatSession).filter_by(id=chat_id).first()
+    #             if not chat:
+    #                 return None
+                
+    #             if title is not None:
+    #                 chat.title = title
+    #             if is_archived is not None:
+    #                 chat.is_archived = is_archived
+    #             if is_pinned is not None:
+    #                 chat.is_pinned = is_pinned
+                    
+    #             chat.updated_at = datetime.utcnow()
+    #             session.flush()
+    #             session.refresh(chat)
+                
+    #             # Передаем session в конвертер
+    #             return self._sqlalchemy_session_to_pydantic(chat, session)
+                
+    #     except Exception as e:
+    #         logger.error(f"Error updating chat {chat_id}: {e}")
+    #         return None
+
+    def _sqlalchemy_message_to_pydantic(self, db_message: SQLChatMessage) -> PydanticMessage:
+        """Convert SQLAlchemy ChatMessage to Pydantic."""
+        metadata = None
+        if db_message.message_metadata:
+            try:
+                metadata = json.loads(db_message.message_metadata)
+            except json.JSONDecodeError:
+                metadata = None
+
+        return PydanticMessage(
+            id=db_message.id,
+            chat_id=db_message.chat_id,
+            role=db_message.role,
+            content=db_message.content,
+            metadata=metadata,
+            created_at=db_message.created_at
+        )
 
 
-# Создаем глобальный экземпляр для использования в приложении
+# Global instance
 db_manager = DatabaseManager()
 
-
-# Функция для инициализации базы данных (для совместимости с FastAPI)
 def init_db():
-    """Инициализация базы данных при запуске приложения."""
-    try:
-        # Используем существующий экземпляр
-        db_manager.init_database()
-        print("Database initialized successfully")
-    except Exception as e:
-        print(f"Error initializing database: {e}")
-
-
-# Создаем глобальный экземпляр репозитория пользователей (для совместимости)
-class UserRepository:
-    """
-    Репозиторий для работы с пользователями через единый интерфейс.
-    Использует db_manager для фактических операций с базой данных.
-    """
-    
-    def create_user(self, user_data: UserCreate) -> Optional[User]:
-        """Создание нового пользователя."""
-        return db_manager.create_user(user_data)
-    
-    def get_user_by_id(self, user_id: int) -> Optional[User]:
-        """Получение пользователя по ID."""
-        return db_manager.get_user_by_id(user_id)
-    
-    def get_user_by_provider_id(self, provider: str, provider_id: str) -> Optional[User]:
-        """Получение пользователя по провайдеру и oauth_id."""
-        return db_manager.get_user_by_oauth_id(provider, provider_id)
-    
-    def update_last_login(self, user_id: int) -> bool:
-        """Обновление времени последнего входа."""
-        return db_manager.update_last_login(user_id)
-
-
-# Создаем глобальный экземпляр репозитория пользователей
-user_repository = UserRepository()
+    """Initialize database."""
+    logger.info("Database initialized via DatabaseManager")

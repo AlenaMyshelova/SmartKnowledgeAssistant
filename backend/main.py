@@ -17,7 +17,6 @@ from app.auth.deps import get_current_user
 # Инициализация менеджера данных
 data_manager = DataManager()
 
-# Создаем приложение FastAPI
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
@@ -26,8 +25,6 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# ВАЖНО: Порядок middleware имеет значение!
-# 1. Сначала CORS (должен быть первым)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
@@ -39,8 +36,6 @@ app.add_middleware(
 
 # 2. Auth middleware
 app.add_middleware(AuthMiddleware)
-
-# Подключаем роутер API
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
 @app.on_event("startup")
