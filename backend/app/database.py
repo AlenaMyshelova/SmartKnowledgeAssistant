@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import sqlite3
-import pandas as pd
 import json
 import logging
 from pathlib import Path
@@ -15,7 +13,13 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
 
 # Import models
-from app.models.database_models import Base, User as SQLUser, ChatSession as SQLChatSession, ChatMessage as SQLChatMessage, ChatLog as SQLChatLog
+from app.models.database_models import (
+    Base, 
+    User as SQLUser, 
+    ChatSession as SQLChatSession, 
+    ChatMessage as SQLChatMessage, 
+    ChatLog as SQLChatLog
+)
 from app.models.user import UserCreate, User as PydanticUser, UserUpdate, sqlalchemy_to_pydantic
 from app.models.chat import (
     ChatSession as PydanticChatSession, 
@@ -24,44 +28,40 @@ from app.models.chat import (
     MessageCreate
 )
 
-# Set up logging
 logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
     """
-    Enhanced DatabaseManager with SQLAlchemy and Alembic support.
-    Maintains backward compatibility with existing methods while adding new ORM-based functionality.
+    DatabaseManager with SQLAlchemy and Alembic support.
+    All operations use SQLAlchemy ORM.
     """
 
-    def __init__(self, db_path: str = "../data/assistant.db") -> None:
-        # Calculate absolute path relative to this file
-        base_dir = Path(__file__).resolve().parent
-        self.db_path: Path = (base_dir / db_path).resolve()
-
-        # Ensure directory exists
+    def __init__(self, db_path: str = "./data/assistant.db") -> None:
+        # Calculate absolute path
+        current_file = Path(__file__).resolve()
+        backend_dir = current_file.parent.parent  # app/ -> backend/
+        
+        self.db_path: Path = (backend_dir / db_path).resolve()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         # SQLAlchemy setup
         self.db_url = f"sqlite:///{self.db_path}"
+        logger.info(f"Database path: {self.db_path}")
+
         self.engine = create_engine(
             self.db_url,
-            echo=False,  # Set to True for SQL debugging
-            connect_args={"check_same_thread": False}  # Allow multiple threads
+            echo=False,
+            connect_args={"check_same_thread": False}
         )
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
-
-        # Initialize database tables (legacy method for backward compatibility)
-        self._init_legacy_database()
         
-        # Check and apply migrations if available
+        # Apply migrations
         self._check_and_apply_migrations()
 
     @contextmanager
     def get_session(self) -> Session:
-        """
-        Get SQLAlchemy session with automatic cleanup and transaction management.
-        """
+        """Get SQLAlchemy session with automatic cleanup."""
         session = self.SessionLocal()
         try:
             yield session
@@ -73,154 +73,35 @@ class DatabaseManager:
             session.close()
 
     def _check_and_apply_migrations(self) -> None:
-        """
-        Check and apply pending Alembic migrations if migration system is available.
-        """
+        """Check and apply Alembic migrations."""
         try:
-            # Import and initialize migration manager
             from app.database.migration_manager import initialize_migration_manager, get_migration_manager
             
-            # Initialize if not already done
             if get_migration_manager() is None:
                 initialize_migration_manager(self.db_url)
             
             migration_manager = get_migration_manager()
             if migration_manager and not migration_manager.is_database_up_to_date():
-                logger.info("Database schema is outdated. Applying migrations...")
+                logger.info("Applying pending migrations...")
                 migration_manager.upgrade_database()
                 logger.info("Migrations applied successfully")
-            else:
-                logger.info("Database schema is up to date")
                 
         except ImportError:
-            logger.warning("Migration manager not available, skipping migration check")
+            logger.warning("Migration manager not available, creating tables directly...")
+            # Fallback: create tables using SQLAlchemy
+            Base.metadata.create_all(bind=self.engine)
         except Exception as e:
             logger.error(f"Migration check failed: {e}")
-            # In development, we can continue without migrations
-            # In production, you might want to raise the exception
-
-    def _init_legacy_database(self) -> None:
-        """
-        Legacy database initialization for backward compatibility.
-        Creates tables using raw SQL if they don't exist.
-        """
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                # Create users table (OAuth authentication)
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    email TEXT UNIQUE NOT NULL,
-                    name TEXT NOT NULL,
-                    avatar_url TEXT,
-                    oauth_provider TEXT NOT NULL,
-                    oauth_id TEXT NOT NULL,
-                    provider_data TEXT,
-                    is_active BOOLEAN DEFAULT TRUE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_login TIMESTAMP,
-                    UNIQUE(oauth_provider, oauth_id)
-                )
-                """)
-                
-                # Create chat sessions table
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS chat_sessions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    title TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    is_archived BOOLEAN DEFAULT FALSE,
-                    is_pinned BOOLEAN DEFAULT FALSE,
-                    is_incognito BOOLEAN DEFAULT FALSE,
-                    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-                )
-                """)
-
-        
-                
-                # Create chat messages table
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS chat_messages (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    chat_id INTEGER NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    message_metadata TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (chat_id) REFERENCES chat_sessions (id) ON DELETE CASCADE
-                )
-                """)
-                # Add column rename for existing databases
-                try:
-                    cursor.execute("ALTER TABLE chat_messages RENAME COLUMN metadata TO message_metadata")
-                    logger.info("Renamed metadata column to message_metadata in chat_messages table")
-                except sqlite3.OperationalError:
-                    # Column doesn't exist or already renamed
-                    pass
-                
-                # Legacy chat logs table for backward compatibility
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS chat_logs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_message TEXT NOT NULL,
-                    assistant_response TEXT NOT NULL,
-                    data_source TEXT,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-                )
-                """)
-
-                # Legacy tables for backward compatibility
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS chat_sessions_old (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    session_id TEXT UNIQUE NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (id)
-                )
-                """)
-                
-                cursor.execute("""
-                CREATE TABLE IF NOT EXISTS chat_messages_old (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT NOT NULL,
-                    user_id INTEGER,
-                    message_type TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    data_source TEXT,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (id),
-                    FOREIGN KEY (session_id) REFERENCES chat_sessions_old (session_id)
-                )
-                """)
-                
-                # Create indexes for performance
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated ON chat_sessions(user_id, updated_at)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_messages_chat_id ON chat_messages(chat_id)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_logs_timestamp ON chat_logs(timestamp)")
-                
-                conn.commit()
-                logger.info("Legacy database tables initialized successfully")
-                
-        except Exception as e:
-            logger.error(f"Error initializing legacy database: {e}")
 
     # ---------------------------
-    # User Management (Enhanced with SQLAlchemy)
+    # User Management
     # ---------------------------
     
     def create_user(self, user_data: UserCreate) -> Optional[PydanticUser]:
-        """
-        Create a new user using SQLAlchemy ORM.
-        Returns existing user if OAuth provider + ID combination already exists.
-        """
+        """Create a new user."""
         try:
             with self.get_session() as session:
-                # Check if user already exists
+                # Check existing
                 existing_user = session.query(SQLUser).filter_by(
                     oauth_provider=user_data.oauth_provider,
                     oauth_id=user_data.oauth_id
@@ -229,7 +110,7 @@ class DatabaseManager:
                 if existing_user:
                     return self._sqlalchemy_user_to_pydantic(existing_user)
                 
-                # Create new user
+                # Create new
                 db_user = SQLUser(
                     email=user_data.email,
                     name=user_data.name,
@@ -241,21 +122,18 @@ class DatabaseManager:
                 )
                 
                 session.add(db_user)
-                session.flush()  # Get the ID without committing
+                session.flush()
                 session.refresh(db_user)
                 
-                logger.info(f"Created new user: {user_data.email}")
+                logger.info(f"Created user: {user_data.email}")
                 return self._sqlalchemy_user_to_pydantic(db_user)
                 
-        except SQLAlchemyError as e:
-            logger.error(f"SQLAlchemy error creating user: {e}")
-            return None
         except Exception as e:
             logger.error(f"Error creating user: {e}")
             return None
-    
+
     def get_user_by_id(self, user_id: int) -> Optional[PydanticUser]:
-        """Get user by ID using SQLAlchemy ORM."""
+        """Get user by ID."""
         try:
             with self.get_session() as session:
                 db_user = session.query(SQLUser).filter_by(
@@ -266,11 +144,11 @@ class DatabaseManager:
                 return self._sqlalchemy_user_to_pydantic(db_user) if db_user else None
                 
         except Exception as e:
-            logger.error(f"Error getting user by ID {user_id}: {e}")
+            logger.error(f"Error getting user {user_id}: {e}")
             return None
-    
+
     def get_user_by_oauth_id(self, provider: str, oauth_id: str) -> Optional[PydanticUser]:
-        """Get user by OAuth provider and ID using SQLAlchemy ORM."""
+        """Get user by OAuth credentials."""
         try:
             with self.get_session() as session:
                 db_user = session.query(SQLUser).filter_by(
@@ -282,73 +160,96 @@ class DatabaseManager:
                 return self._sqlalchemy_user_to_pydantic(db_user) if db_user else None
                 
         except Exception as e:
-            logger.error(f"Error getting user by OAuth ID {provider}:{oauth_id}: {e}")
+            logger.error(f"Error getting user {provider}:{oauth_id}: {e}")
             return None
 
     def update_last_login(self, user_id: int) -> bool:
-        """Update user's last login timestamp."""
+        """Update last login timestamp."""
         try:
             with self.get_session() as session:
-                user = session.query(SQLUser).filter_by(id=user_id).first()
-                if user:
-                    user.last_login = datetime.utcnow()
-                    return True
-                return False
+                session.query(SQLUser).filter_by(id=user_id).update(
+                    {"last_login": datetime.utcnow()}
+                )
+                return True
                 
         except Exception as e:
-            logger.error(f"Error updating last login for user {user_id}: {e}")
+            logger.error(f"Error updating last login: {e}")
             return False
 
-    def update_user(self, user_id: int, update_data: UserUpdate) -> Optional[PydanticUser]:
-        """Update user data using SQLAlchemy ORM."""
-        try:
-            with self.get_session() as session:
-                user = session.query(SQLUser).filter_by(id=user_id).first()
-                if not user:
-                    return None
-                
-                # Update fields if provided
-                if update_data.email is not None:
-                    user.email = update_data.email
-                if update_data.name is not None:
-                    user.name = update_data.name
-                if update_data.avatar_url is not None:
-                    user.avatar_url = update_data.avatar_url
-                if update_data.is_active is not None:
-                    user.is_active = update_data.is_active
-                
-                session.flush()
-                session.refresh(user)
-                
-                return self._sqlalchemy_user_to_pydantic(user)
-                
-        except Exception as e:
-            logger.error(f"Error updating user {user_id}: {e}")
-            return None
-
     # ---------------------------
-    # Chat Management (Enhanced with SQLAlchemy)
+    # Chat Management
     # ---------------------------
     
-    def create_chat_session(self, user_id: int, title: Optional[str] = None) -> Optional[PydanticChatSession]:
-        """Create a new chat session using SQLAlchemy ORM."""
+    def create_chat_session(
+        self, 
+        user_id: int, 
+        title: Optional[str] = None,
+        is_incognito: bool = False
+    ) -> Optional[PydanticChatSession]:
+        """Create new chat session."""
         try:
             with self.get_session() as session:
                 db_session = SQLChatSession(
                     user_id=user_id,
-                    title=title or f"Chat {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                    title=title or f"Chat {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                    is_incognito=is_incognito
                 )
                 
                 session.add(db_session)
                 session.flush()
                 session.refresh(db_session)
                 
-                logger.info(f"Created new chat session {db_session.id} for user {user_id}")
+                logger.info(f"Created chat session {db_session.id}")
                 return self._sqlalchemy_session_to_pydantic(db_session)
                 
         except Exception as e:
-            logger.error(f"Error creating chat session for user {user_id}: {e}")
+            logger.error(f"Error creating chat session: {e}")
             return None
+
+    def update_chat_session(
+        self,
+        chat_id: int,
+        title: Optional[str] = None,
+        is_archived: Optional[bool] = None,
+        is_pinned: Optional[bool] = None
+    ) -> Optional[PydanticChatSession]:
+        """Update chat session."""
+        try:
+            with self.get_session() as session:
+                chat = session.query(SQLChatSession).filter_by(id=chat_id).first()
+                if not chat:
+                    return None
+                
+                if title is not None:
+                    chat.title = title
+                if is_archived is not None:
+                    chat.is_archived = is_archived
+                if is_pinned is not None:
+                    chat.is_pinned = is_pinned
+                    
+                chat.updated_at = datetime.utcnow()
+                session.flush()
+                session.refresh(chat)
+                
+                return self._sqlalchemy_session_to_pydantic(chat)
+                
+        except Exception as e:
+            logger.error(f"Error updating chat {chat_id}: {e}")
+            return None
+
+    def delete_chat_session(self, chat_id: int) -> bool:
+        """Delete chat session and all messages."""
+        try:
+            with self.get_session() as session:
+                chat = session.query(SQLChatSession).filter_by(id=chat_id).first()
+                if chat:
+                    session.delete(chat)  # CASCADE will delete messages
+                    return True
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error deleting chat {chat_id}: {e}")
+            return False
 
     def add_message_to_chat(
         self, 
@@ -357,7 +258,7 @@ class DatabaseManager:
         content: str, 
         metadata: Optional[Dict[str, Any]] = None
     ) -> Optional[PydanticMessage]:
-        """Add a message to a chat session using SQLAlchemy ORM."""
+        """Add message to chat."""
         try:
             with self.get_session() as session:
                 db_message = SQLChatMessage(
@@ -371,7 +272,7 @@ class DatabaseManager:
                 session.flush()
                 session.refresh(db_message)
                 
-                # Update chat session's updated_at timestamp
+                # Update chat's updated_at
                 session.query(SQLChatSession).filter_by(id=chat_id).update(
                     {"updated_at": datetime.utcnow()}
                 )
@@ -379,17 +280,17 @@ class DatabaseManager:
                 return self._sqlalchemy_message_to_pydantic(db_message)
                 
         except Exception as e:
-            logger.error(f"Error adding message to chat {chat_id}: {e}")
+            logger.error(f"Error adding message: {e}")
             return None
 
     def get_user_chat_sessions(
         self, 
-        user_id: int, 
-        limit: int = 20, 
-        offset: int = 0, 
-        include_archived: bool = False
+        user_id: int,
+        include_archived: bool = False,
+        limit: int = 20,
+        offset: int = 0
     ) -> List[PydanticChatSession]:
-        """Get user's chat sessions with pagination using SQLAlchemy ORM."""
+        """Get user's chat sessions."""
         try:
             with self.get_session() as session:
                 query = session.query(SQLChatSession).filter_by(user_id=user_id)
@@ -397,36 +298,114 @@ class DatabaseManager:
                 if not include_archived:
                     query = query.filter_by(is_archived=False)
                 
-                db_sessions = (query
-                             .order_by(SQLChatSession.updated_at.desc())
-                             .offset(offset)
-                             .limit(limit)
-                             .all())
+                # Pinned first, then by updated_at
+                db_sessions = (
+                    query.order_by(
+                        SQLChatSession.is_pinned.desc(),
+                        SQLChatSession.updated_at.desc()
+                    )
+                    .offset(offset)
+                    .limit(limit)
+                    .all()
+                )
                 
-                return [self._sqlalchemy_session_to_pydantic(session) for session in db_sessions]
+                return [self._sqlalchemy_session_to_pydantic(s) for s in db_sessions]
                 
         except Exception as e:
-            logger.error(f"Error getting chat sessions for user {user_id}: {e}")
+            logger.error(f"Error getting sessions: {e}")
             return []
 
-    def get_chat_messages(self, chat_id: int, limit: int = 100) -> List[PydanticMessage]:
-        """Get messages for a specific chat session."""
+    def get_chat_messages(
+        self, 
+        chat_id: int, 
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[PydanticMessage]:
+        """Get chat messages."""
         try:
             with self.get_session() as session:
-                db_messages = (session.query(SQLChatMessage)
-                             .filter_by(chat_id=chat_id)
-                             .order_by(SQLChatMessage.created_at.asc())
-                             .limit(limit)
-                             .all())
+                db_messages = (
+                    session.query(SQLChatMessage)
+                    .filter_by(chat_id=chat_id)
+                    .order_by(SQLChatMessage.created_at.asc())
+                    .offset(offset)
+                    .limit(limit)
+                    .all()
+                )
                 
                 return [self._sqlalchemy_message_to_pydantic(msg) for msg in db_messages]
                 
         except Exception as e:
-            logger.error(f"Error getting messages for chat {chat_id}: {e}")
+            logger.error(f"Error getting messages: {e}")
+            return []
+
+    def search_chats(
+        self,
+        user_id: int,
+        query: str,
+        include_archived: bool = False,
+        limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """Search in user's chats."""
+        try:
+            with self.get_session() as session:
+                # Search in titles
+                chats_query = session.query(SQLChatSession).filter(
+                    SQLChatSession.user_id == user_id,
+                    SQLChatSession.title.contains(query)
+                )
+                
+                if not include_archived:
+                    chats_query = chats_query.filter_by(is_archived=False)
+                
+                results = []
+                
+                # Add matching chats
+                for chat in chats_query.limit(limit).all():
+                    results.append({
+                        "id": chat.id,
+                        "title": chat.title,
+                        "updated_at": chat.updated_at,
+                        "match_type": "title"
+                    })
+                
+                # Search in messages if we need more results
+                if len(results) < limit:
+                    messages_query = (
+                        session.query(SQLChatMessage)
+                        .join(SQLChatSession)
+                        .filter(
+                            SQLChatSession.user_id == user_id,
+                            SQLChatMessage.content.contains(query)
+                        )
+                    )
+                    
+                    if not include_archived:
+                        messages_query = messages_query.filter(
+                            SQLChatSession.is_archived == False
+                        )
+                    
+                    seen_chats = {r["id"] for r in results}
+                    
+                    for msg in messages_query.limit(limit - len(results)).all():
+                        if msg.chat_id not in seen_chats:
+                            results.append({
+                                "id": msg.chat.id,
+                                "title": msg.chat.title,
+                                "updated_at": msg.chat.updated_at,
+                                "match_type": "message",
+                                "matched_content": msg.content[:100]
+                            })
+                            seen_chats.add(msg.chat_id)
+                
+                return results[:limit]
+                
+        except Exception as e:
+            logger.error(f"Error searching chats: {e}")
             return []
 
     # ---------------------------
-    # Legacy Methods (Backward Compatibility)
+    # Legacy Support (minimal)
     # ---------------------------
     
     def log_chat(
@@ -435,160 +414,59 @@ class DatabaseManager:
         assistant_response: str,
         data_source: Optional[str] = None,
     ) -> None:
-        """
-        Legacy method: Add entry to chat_logs table for backward compatibility.
-        """
+        """Legacy: Add to chat_logs table."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT INTO chat_logs (user_message, assistant_response, data_source) VALUES (?, ?, ?)",
-                    (user_message, assistant_response, data_source)
+            with self.get_session() as session:
+                log_entry = SQLChatLog(
+                    user_message=user_message,
+                    assistant_response=assistant_response,
+                    data_source=data_source
                 )
-                conn.commit()
+                session.add(log_entry)
                 
         except Exception as e:
-            logger.error(f"Error logging chat (legacy): {e}")
-
-    def create_chat_session_legacy(self, session_id: str, user_id: Optional[int] = None) -> bool:
-        """Legacy method: Create chat session with string ID."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT INTO chat_sessions_old (session_id, user_id) VALUES (?, ?)",
-                    (session_id, user_id)
-                )
-                conn.commit()
-                return True
-                
-        except Exception as e:
-            logger.error(f"Error creating legacy chat session: {e}")
-            return False
-
-    def add_chat_message_legacy(
-        self,
-        session_id: str,
-        message_type: str,  # 'user' or 'assistant'
-        content: str,
-        user_id: Optional[int] = None,
-        data_source: Optional[str] = None,
-    ) -> bool:
-        """Legacy method: Add message to legacy chat_messages table."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    INSERT INTO chat_messages_old 
-                    (session_id, user_id, message_type, content, data_source)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (session_id, user_id, message_type, content, data_source)
-                )
-                conn.commit()
-                return True
-                
-        except Exception as e:
-            logger.error(f"Error adding legacy chat message: {e}")
-            return False
-
-    def get_chat_session_messages(self, session_id: str) -> List[Dict[str, Any]]:
-        """Legacy method: Get messages for string-based session ID."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                df = pd.read_sql_query(
-                    "SELECT * FROM chat_messages_old WHERE session_id = ? ORDER BY timestamp ASC",
-                    conn,
-                    params=(session_id,)
-                )
-                return df.to_dict("records")
-                
-        except Exception as e:
-            logger.error(f"Error fetching legacy chat session messages: {e}")
-            return []
-
-    def get_chat_history(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """
-        Legacy method: Get recent entries from chat_logs table.
-        Returns list of dictionaries for API compatibility.
-        """
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                df = pd.read_sql_query(
-                    "SELECT * FROM chat_logs ORDER BY timestamp DESC LIMIT ?",
-                    conn,
-                    params=(limit,)
-                )
-                return df.to_dict("records")
-                
-        except Exception as e:
-            logger.error(f"Error fetching chat history: {e}")
-            return []
-
-    # ---------------------------
-    # Utility Methods
-    # ---------------------------
-    
-    def clear_history(self) -> None:
-        """Clear all chat records (admin function)."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute("DELETE FROM chat_logs")
-                conn.execute("DELETE FROM chat_messages")
-                conn.execute("DELETE FROM chat_messages_old")
-                conn.commit()
-                logger.info("Chat history cleared")
-                
-        except Exception as e:
-            logger.error(f"Error clearing chat history: {e}")
-
-    def count_records(self) -> int:
-        """Count records in chat_logs table."""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM chat_logs")
-                (count,) = cursor.fetchone()
-                return int(count)
-                
-        except Exception as e:
-            logger.error(f"Error counting records: {e}")
-            return 0
+            logger.error(f"Error logging chat: {e}")
 
     def get_database_stats(self) -> Dict[str, int]:
-        """Get statistics about database tables."""
+        """Get database statistics."""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                stats = {}
-                tables = ['users', 'chat_sessions', 'chat_messages', 'chat_logs']
-                
-                for table in tables:
-                    try:
-                        cursor.execute(f"SELECT COUNT(*) FROM {table}")
-                        (count,) = cursor.fetchone()
-                        stats[table] = int(count)
-                    except sqlite3.OperationalError:
-                        stats[table] = 0  # Table doesn't exist
-                
+            with self.get_session() as session:
+                stats = {
+                    "users": session.query(SQLUser).count(),
+                    "chat_sessions": session.query(SQLChatSession).count(),
+                    "chat_messages": session.query(SQLChatMessage).count(),
+                    "chat_logs": session.query(SQLChatLog).count(),
+                }
                 return stats
                 
         except Exception as e:
-            logger.error(f"Error getting database stats: {e}")
+            logger.error(f"Error getting stats: {e}")
             return {}
 
     # ---------------------------
-    # Helper Methods for Model Conversion
+    # Helpers
     # ---------------------------
     
     def _sqlalchemy_user_to_pydantic(self, db_user: SQLUser) -> PydanticUser:
-        """Convert SQLAlchemy User model to Pydantic User model."""
+        """Convert SQLAlchemy User to Pydantic."""
         return sqlalchemy_to_pydantic(db_user)
 
     def _sqlalchemy_session_to_pydantic(self, db_session: SQLChatSession) -> PydanticChatSession:
-        """Convert SQLAlchemy ChatSession model to Pydantic ChatSession model."""
+        """Convert SQLAlchemy ChatSession to Pydantic."""
+        # Count messages
+        with self.get_session() as session:
+            message_count = session.query(SQLChatMessage).filter_by(
+                chat_id=db_session.id
+            ).count()
+            
+            # Get last message
+            last_msg = (
+                session.query(SQLChatMessage)
+                .filter_by(chat_id=db_session.id)
+                .order_by(SQLChatMessage.created_at.desc())
+                .first()
+            )
+        
         return PydanticChatSession(
             id=db_session.id,
             user_id=db_session.user_id,
@@ -597,11 +475,13 @@ class DatabaseManager:
             updated_at=db_session.updated_at,
             is_archived=db_session.is_archived,
             is_pinned=db_session.is_pinned,
-            is_incognito=getattr(db_session, 'is_incognito', False) 
+            is_incognito=db_session.is_incognito,
+            message_count=message_count,
+            last_message=last_msg.content[:100] if last_msg else None
         )
 
     def _sqlalchemy_message_to_pydantic(self, db_message: SQLChatMessage) -> PydanticMessage:
-        """Convert SQLAlchemy ChatMessage model to Pydantic Message model."""
+        """Convert SQLAlchemy ChatMessage to Pydantic."""
         metadata = None
         if db_message.message_metadata:
             try:
@@ -618,69 +498,10 @@ class DatabaseManager:
             created_at=db_message.created_at
         )
 
-    def _parse_datetime(self, datetime_str: Optional[str]) -> Optional[datetime]:
-        """
-        Safe datetime string parsing with multiple format support.
-        """
-        if not datetime_str:
-            return None
-            
-        try:
-            # Try different datetime formats
-            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"):
-                try:
-                    return datetime.strptime(datetime_str, fmt)
-                except ValueError:
-                    continue
-            
-            # Try ISO format
-            return datetime.fromisoformat(datetime_str.replace('Z', '+00:00'))
-            
-        except Exception:
-            logger.warning(f"Could not parse datetime string: {datetime_str}")
-            return datetime.now()  # Fallback to current datetime
 
-
-# Create global instance for use throughout the application
+# Global instance
 db_manager = DatabaseManager()
 
-
 def init_db():
-    """
-    Initialize database on application startup (FastAPI compatibility).
-    """
-    try:
-        # The database is already initialized in the constructor
-        db_manager._init_legacy_database()
-        logger.info("Database initialized successfully")
-    except Exception as e:
-        logger.error(f"Error initializing database: {e}")
-        raise
-
-
-# Legacy user repository for backward compatibility
-class UserRepository:
-    """
-    Legacy user repository interface.
-    Uses db_manager for actual database operations.
-    """
-    
-    def create_user(self, user_data: UserCreate) -> Optional[PydanticUser]:
-        """Create a new user."""
-        return db_manager.create_user(user_data)
-    
-    def get_user_by_id(self, user_id: int) -> Optional[PydanticUser]:
-        """Get user by ID."""
-        return db_manager.get_user_by_id(user_id)
-    
-    def get_user_by_provider_id(self, provider: str, provider_id: str) -> Optional[PydanticUser]:
-        """Get user by OAuth provider and ID."""
-        return db_manager.get_user_by_oauth_id(provider, provider_id)
-    
-    def update_last_login(self, user_id: int) -> bool:
-        """Update user's last login timestamp."""
-        return db_manager.update_last_login(user_id)
-
-
-# Create global user repository instance
-user_repository = UserRepository()
+    """Initialize database."""
+    logger.info("Database initialized via DatabaseManager")

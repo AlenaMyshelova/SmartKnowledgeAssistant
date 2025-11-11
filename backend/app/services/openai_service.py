@@ -5,7 +5,6 @@ from openai import OpenAI
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
-# settings = get_settings()
 
 class OpenAIService:
     """

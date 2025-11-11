@@ -1,4 +1,5 @@
 import os
+from venv import logger
 import numpy as np
 import faiss
 import pickle
@@ -15,13 +16,16 @@ class VectorSearchEngine:
     Превращает тексты в векторы и выполняет семантический поиск.
     """
     
-    def __init__(self, index_dir: str = "data/indexes"):
+    def __init__(self, index_dir: str = "./data/indexes"):
         """Инициализация поискового движка."""
         self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
         self.embedding_model = "text-embedding-3-small"  # Модель OpenAI для эмбеддингов
-        self.index_dir = Path(index_dir)
+        current_file = Path(__file__).resolve()
+        backend_dir = current_file.parent.parent 
+        self.index_dir = backend_dir / index_dir
         self.index_dir.mkdir(exist_ok=True, parents=True)
         
+        logger.info(f"Vector index path: {self.index_dir}") 
         # Словари для хранения индексов и данных
         self.indexes = {}          # FAISS индексы {source_id: index}
         self.documents = {}        # Исходные документы {source_id: [docs]}
