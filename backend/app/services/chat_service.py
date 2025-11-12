@@ -7,18 +7,17 @@ from app.models.chat import ChatSession, ChatMessage, MessageCreate, ChatSession
 from app.models.user import User
 from app.data_manager import DataManager
 from app.chat_utils import build_context_from_results
+from app.services.openai_service import openai_service
 
 logger = logging.getLogger(__name__)
 
 class ChatService:
     """
-    Modern ChatService using SQLAlchemy ORM + structured chat management.
-    Replaces legacy dictionary-based approach with typed models.
+    ChatService using SQLAlchemy ORM + structured chat management.
     """
-    
     def __init__(self):
-        self.db = db_manager
-        self.data_manager = DataManager()
+        self.db = db_manager #connect to DB manager
+        self.data_manager = DataManager() #Search in FAQ documents etc.
     
     # ===========================================
     # CORE CHAT SESSION MANAGEMENT
@@ -152,8 +151,6 @@ class ChatService:
         """
         Process a user message: save it, search for context, generate AI response.
         
-        This replaces the old process_chat_message method but works with chat sessions.
-        
         Args:
             chat_id: ID of the chat session
             user_message: The user's message
@@ -189,7 +186,7 @@ class ChatService:
             context, scarcity_note = self._build_context(relevant_data)
             
             # Step 4: Generate AI response
-            from app.services.openai_service import openai_service
+          
             ai_response = await openai_service.generate_response(
                 query=user_message,
                 context=context,
@@ -197,7 +194,7 @@ class ChatService:
             )
             
             if not ai_response:
-                ai_response = "I'm sorry, I encountered an error processing your request."
+                ai_response = "Error occurred while generating response."
             
             # Step 5: Save AI response with metadata
             ai_msg_metadata = {
@@ -229,7 +226,7 @@ class ChatService:
         data_source: str = "company_faqs"
     ) -> Dict[str, Any]:
         """
-        Get AI response with formatted sources (replaces old get_response method).
+        Get AI response with formatted sources.
         
         Returns both the AI message and formatted source information.
         """
@@ -243,7 +240,7 @@ class ChatService:
             
             if not ai_message:
                 return {
-                    "response": "I'm sorry, I encountered an error processing your request.",
+                    "response": "Error occurred while processing your request.",
                     "sources": [],
                     "message_id": None
                 }
@@ -271,7 +268,7 @@ class ChatService:
         except Exception as e:
             logger.error(f"Error getting response with sources: {e}")
             return {
-                "response": "I'm sorry, I encountered an error processing your request.",
+                "response": "Error occurred while processing your request.",
                 "sources": [],
                 "message_id": None
             }

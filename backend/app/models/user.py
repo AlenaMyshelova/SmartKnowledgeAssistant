@@ -9,9 +9,9 @@ class UserBase(BaseModel):
     avatar_url: Optional[str] = None
 
 class UserCreate(UserBase):
-    # Для OAuth аутентификации
+    # For OAuth authentication
     oauth_provider: str  # "google", "github"
-    oauth_id: str  # ID пользователя у провайдера
+    oauth_id: str  # Users's unique ID from the provider
     provider_data: Optional[Dict[str, Any]] = None
 
 class UserUpdate(BaseModel):

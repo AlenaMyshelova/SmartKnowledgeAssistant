@@ -4,8 +4,8 @@ from app.data_manager import DataManager
 
 class DataService:
     """
-    Сервис для работы с источниками данных.
-    Предоставляет удобный интерфейс для работы с FAQ и другими данными.
+    Service for working with data sources.
+    Provides a convenient interface for working with FAQs and other data.
     """
     
     def __init__(self):
@@ -13,44 +13,44 @@ class DataService:
     
     def get_all_data_sources(self) -> Dict[str, Any]:
         """
-        Получение информации обо всех доступных источниках данных.
+        Get information about all available data sources.
         
         Returns:
-            Словарь с информацией о каждом источнике
+            Dictionary with information about each source
         """
         return self.data_manager.get_all_data_sources()
     
     def get_categories(self) -> List[str]:
         """
-        Получение всех доступных категорий FAQ.
+        Get all available FAQ categories.
         
         Returns:
-            Список строк с названиями категорий
+            List of category names
         """
         return self.data_manager.get_all_categories()
     
     def get_faqs_by_category(self, category: str) -> List[Dict[str, Any]]:
         """
-        Получение FAQ по определенной категории.
+        Get FAQs by a specific category.
         
         Args:
-            category: Название категории
+            category: Category name
             
         Returns:
-            Список FAQ записей в указанной категории
+            List of FAQ entries in the specified category
         """
         return self.data_manager.get_faq_by_category(category)
     
     def search_faqs(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
         """
-        Поиск FAQ по запросу.
+        Search FAQs by query.
         
         Args:
-            query: Поисковый запрос
-            limit: Максимальное количество результатов
+            query: Search query
+            limit: Maximum number of results
             
         Returns:
-            Список релевантных FAQ записей
+            List of relevant FAQ entries
         """
         return self.data_manager.search_faqs(query, limit)
     async def search_similar(
@@ -60,22 +60,22 @@ class DataService:
         top_k: int = 3
     ) -> List[Dict[str, Any]]:
         """
-        Поиск похожих документов по запросу.
+        Search for similar documents based on a query.
         
         Args:
-            query: Поисковый запрос
-            data_source: Источник данных (company_faqs, uploaded_files, etc.)
-            top_k: Количество результатов
+            query: Search query
+            data_source: Data source (company_faqs, uploaded_files, etc.)
+            top_k: Number of results
             
         Returns:
-            Список релевантных документов
+            List of relevant documents
         """
         try:
             if data_source == "company_faqs":
-                # Используем существующий метод поиска FAQ
+                # Use existing FAQ search method
                 results = self.search_faqs(query, top_k)
                 
-                # Преобразуем в ожидаемый формат
+                # Convert to expected format
                 sources = []
                 for faq in results:
                     sources.append({
@@ -93,15 +93,15 @@ class DataService:
                 return sources
                 
             elif data_source == "uploaded_files":
-                # Пока возвращаем пустой список - можно расширить позже
+                # currently no uploaded files search implemented
                 return []
                 
             else:
-                # Для general_knowledge возвращаем пустой список
+                # For general_knowledge return empty list
                 return []
                 
         except Exception as e:
-            # Логируем ошибку, но не прерываем работу чата
+            # Log error but do not interrupt chat operation
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Error in search_similar: {e}")
@@ -109,10 +109,10 @@ class DataService:
 
     def get_data_statistics(self) -> Dict[str, Any]:
         """
-        Получение статистики по данным.
+        Get data statistics.
         
         Returns:
-            Словарь со статистикой
+            Dictionary with statistics
         """
         sources = self.get_all_data_sources()
         categories = self.get_categories()

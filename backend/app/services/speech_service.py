@@ -165,5 +165,4 @@ class SpeechService:
         return True
 
 
-# Create singleton instance
 speech_service = SpeechService()
