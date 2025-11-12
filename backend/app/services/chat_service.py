@@ -18,6 +18,19 @@ class ChatService:
     def __init__(self):
         self.db = db_manager #connect to DB manager
         self.data_manager = DataManager() #Search in FAQ documents etc.
+               # --- in-memory storage for incognito ---
+        self._incognito_chats: Dict[int, Dict[str, Any]] = {}
+        self._incognito_messages: Dict[int, List[Dict[str, Any]]] = {}
+        self._incognito_id = -1
+
+    def _new_incognito_id(self) -> int:
+        cid = self._incognito_id
+        self._incognito_id -= 1
+        return cid
+
+    @staticmethod
+    def _is_incognito_chat_id(chat_id: int) -> bool:
+        return chat_id < 0
     
     # ===========================================
     # CORE CHAT SESSION MANAGEMENT
@@ -44,16 +57,26 @@ class ChatService:
             # Generate default title if none provided
             if not title:
                 title = f"Chat {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-            
-            # Create chat session
-            chat = self.db.create_chat_session(user_id, title)
-            
-            # Update incognito status if needed
-            if chat and is_incognito:
-                chat = self.db.update_chat_session(chat.id, is_incognito=True)
-            
-            logger.info(f"Created chat session {chat.id} for user {user_id}")
-            return chat
+            if is_incognito:
+               # True incognito: keep only in memory
+                cid = self._new_incognito_id()
+                now = datetime.utcnow()
+                self._incognito_chats[cid] = {
+                    "id": cid, "user_id": user_id, "title": title,
+                    "created_at": now, "updated_at": now, "is_incognito": True
+                }
+                self._incognito_messages[cid] = []
+                logger.info(f"Created incognito chat {cid} for user {user_id}")
+                return ChatSession(
+                    id=cid, user_id=user_id, title=title,
+                    created_at=now, updated_at=now,
+                    is_archived=False, is_pinned=False,
+                    is_incognito=True, message_count=0, last_message=None
+                )
+            else:
+                chat = self.db.create_chat_session(user_id, title, is_incognito=False)
+                logger.info(f"Created chat session {chat.id} for user {user_id}")
+                return chat
             
         except Exception as e:
             logger.error(f"Error creating chat session: {e}")
@@ -67,10 +90,23 @@ class ChatService:
     ) -> List[ChatSession]:
         """Get all chat sessions for a user."""
         try:
-            return self.db.get_user_chat_sessions(
-                user_id, 
-                include_archived=include_archived
+            chats = self.db.get_user_chat_sessions(
+            user_id,
+            include_archived=include_archived
             )
+            if include_incognito:
+                for cid, chat in self._incognito_chats.items():
+                    if chat["user_id"] != user_id:
+                        continue
+                    msgs = self._incognito_messages.get(cid, [])
+                    chats.append(ChatSession(
+                        id=cid, user_id=user_id, title=chat["title"],
+                        created_at=chat["created_at"], updated_at=chat["updated_at"],
+                        is_archived=False, is_pinned=False, is_incognito=True,
+                        message_count=len(msgs),
+                        last_message=(msgs[-1]["content"][:100] if msgs else None)
+                    ))
+            return chats
         except Exception as e:
             logger.error(f"Error getting user chats: {e}")
             return []
@@ -99,10 +135,16 @@ class ChatService:
     async def delete_chat(self, chat_id: int) -> bool:
         """Delete a chat session and all its messages."""
         try:
+            if self._is_incognito_chat_id(chat_id):
+                self._incognito_chats.pop(chat_id, None)
+                self._incognito_messages.pop(chat_id, None)
+                logger.info(f"Deleted incognito chat {chat_id}")
+                return True
             success = self.db.delete_chat_session(chat_id)
             if success:
                 logger.info(f"Deleted chat session {chat_id}")
             return success
+            
         except Exception as e:
             logger.error(f"Error deleting chat {chat_id}: {e}")
             return False
@@ -120,11 +162,29 @@ class ChatService:
     ) -> Optional[ChatMessage]:
         """Add a message to a chat session."""
         try:
-            return self.db.add_message_to_chat(chat_id, role, content, metadata)
+            if self._is_incognito_chat_id(chat_id):
+                if chat_id not in self._incognito_messages:
+                    logger.error(f"Incognito chat {chat_id} not found")
+                    return None
+                mid = -len(self._incognito_messages[chat_id]) - 1
+                created = datetime.utcnow()
+                self._incognito_messages[chat_id].append({
+                    "id": mid, "chat_id": chat_id, "role": role,
+                    "content": content, "metadata": metadata or {},
+                    "created_at": created
+                })
+                if chat_id in self._incognito_chats:
+                    self._incognito_chats[chat_id]["updated_at"] = created
+                return ChatMessage(
+                    id=mid, chat_id=chat_id, role=role,
+                    content=content, metadata=metadata or {}, created_at=created
+                )
+            else:
+                return self.db.add_message_to_chat(chat_id, role, content, metadata)
         except Exception as e:
             logger.error(f"Error adding message to chat {chat_id}: {e}")
             return None
-    
+        
     async def get_chat_messages(
         self, 
         chat_id: int, 
@@ -132,7 +192,17 @@ class ChatService:
     ) -> List[ChatMessage]:
         """Get messages from a chat session."""
         try:
-            return self.db.get_chat_messages(chat_id, limit)
+            if self._is_incognito_chat_id(chat_id):
+                msgs = self._incognito_messages.get(chat_id, [])
+                if limit:
+                    msgs = msgs[-limit:]
+                return [ChatMessage(
+                    id=m["id"], chat_id=m["chat_id"], role=m["role"],
+                    content=m["content"], metadata=m.get("metadata") or {},
+                    created_at=m["created_at"]
+                ) for m in msgs]
+            else:
+                return self.db.get_chat_messages(chat_id, limit)
         except Exception as e:
             logger.error(f"Error getting messages for chat {chat_id}: {e}")
             return []
