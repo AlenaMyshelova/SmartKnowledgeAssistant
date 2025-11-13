@@ -1,19 +1,16 @@
 from __future__ import annotations
-
-from asyncio.log import logger
 from typing import Optional
 from datetime import timedelta, datetime
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, Query
 from fastapi.responses import RedirectResponse
-
+from app.services.auth_service import auth_service 
 from app.core.config import settings
-from app.database import db_manager
 from app.auth.deps import get_current_user
 from app.auth.jwt import create_access_token, decode_access_token
 from app.auth.oauth import get_oauth_provider
-from app.models.user import User, UserCreate
+from app.models.user import User
 import logging
 
 logger = logging.getLogger(__name__)
@@ -97,12 +94,11 @@ async def oauth_callback(
 ):
     """Callback для OAuth провайдеров после авторизации."""
     
-   
-    print(f"[OAUTH CALLBACK] Provider: {provider}")
-    print(f"[OAUTH CALLBACK] Code present: {bool(code)}")
-    print(f"[OAUTH CALLBACK] State present: {bool(state)}")
-    print(f"[OAUTH CALLBACK] Error: {error}")
-    print(f"[OAUTH CALLBACK] Cookies: {request.cookies}")
+    logger.info(f"[OAUTH CALLBACK] Provider: {provider}")
+    logger.info(f"[OAUTH CALLBACK] Code present: {bool(code)}")
+    logger.info(f"[OAUTH CALLBACK] State present: {bool(state)}")
+    logger.info(f"[OAUTH CALLBACK] Error: {error}")
+    logger.info(f"[OAUTH CALLBACK] Cookies: {request.cookies}")
     
     # Check for error from provider
     if error:
@@ -114,21 +110,23 @@ async def oauth_callback(
     # Check for presence of code and state
     if not code or not state:
         error_msg = "Missing code or state parameter"
-        print(f"[OAUTH CALLBACK ERROR] {error_msg}")
+        logger.error(f"[OAUTH CALLBACK ERROR] {error_msg}")
         return RedirectResponse(
             url=f"{settings.FRONTEND_URL}/login?error={error_msg}"
         )
+    
     try:
         if provider not in settings.OAUTH_PROVIDERS:
             raise HTTPException(status_code=400, detail="Провайдер не поддерживается")
 
         cookie_state = request.cookies.get("oauth_state")
-        print(f"[OAUTH CALLBACK] Cookie state: {cookie_state[:10] + '...' if cookie_state else 'None'}")
-        print(f"[OAUTH CALLBACK] State match: {state == cookie_state}")
+        logger.info(f"[OAUTH CALLBACK] Cookie state: {cookie_state[:10] + '...' if cookie_state else 'None'}")
+        logger.info(f"[OAUTH CALLBACK] State match: {state == cookie_state}")
+        
         if not state or not cookie_state or state != cookie_state:
-            print(f"[OAUTH CALLBACK ERROR] State mismatch!")
-            print(f"[OAUTH CALLBACK ERROR] Expected: {cookie_state}")
-            print(f"[OAUTH CALLBACK ERROR] Received: {state}")
+            logger.error(f"[OAUTH CALLBACK ERROR] State mismatch!")
+            logger.error(f"[OAUTH CALLBACK ERROR] Expected: {cookie_state}")
+            logger.error(f"[OAUTH CALLBACK ERROR] Received: {state}")
             raise HTTPException(status_code=400, detail="Недействительный параметр state")
 
         frontend_redirect = request.cookies.get("oauth_redirect") or f"{settings.FRONTEND_URL}/auth/callback"
@@ -137,9 +135,10 @@ async def oauth_callback(
         provider_redirect_uri = provider_cfg["redirect_uri"]
 
         oauth_provider = get_oauth_provider(provider)
-        print(f"[OAUTH CALLBACK] Starting token exchange...")
-        print(f"[OAUTH CALLBACK] Code: {code[:20]}...")
-        print(f"[OAUTH CALLBACK] Provider redirect URI: {provider_redirect_uri}")
+        logger.info(f"[OAUTH CALLBACK] Starting token exchange...")
+        logger.info(f"[OAUTH CALLBACK] Code: {code[:20]}...")
+        logger.info(f"[OAUTH CALLBACK] Provider redirect URI: {provider_redirect_uri}")
+       
         # Exchange code for access token
         access_token = await oauth_provider.exchange_code_for_token(
             code,
@@ -157,22 +156,16 @@ async def oauth_callback(
             raise HTTPException(status_code=400, detail="Некорректные данные пользователя от провайдера")
 
         # Upsert пользователя
-        existing_user = db_manager.get_user_by_oauth_id(provider, provider_id)
-        if existing_user:
-            db_manager.update_last_login(existing_user.id)
-            user = existing_user
-        else:
-            user_data = UserCreate(
-                email=email,
-                name=name,
-                avatar_url=user_info.get("avatar_url"),
-                oauth_provider=provider,
-                oauth_id=provider_id,
-                provider_data=user_info.get("provider_data"),
-            )
-            user = db_manager.create_user(user_data)
-            if not user:
-                raise HTTPException(status_code=500, detail="Не удалось создать пользователя")
+        user = await auth_service.get_or_create_oauth_user(
+        provider=provider,
+        provider_id=provider_id,
+        email=email,
+        name=name,
+        avatar_url=user_info.get("avatar_url")
+        )
+
+        if not user:
+            raise HTTPException(status_code=500, detail="Error creating or retrieving user")  
 
         # Генерируем наш access JWT (короткоживущий)
         payload = {"sub": str(user.id), "email": user.email, "name": user.name}
@@ -180,8 +173,10 @@ async def oauth_callback(
             data=payload,
             expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
         )
-        print(f"[AUTH] User {user.email} authenticated successfully")
-        print(f"[AUTH] Redirecting to: {frontend_redirect}")
+        
+        logger.info(f"[AUTH] User {user.email} authenticated successfully")
+        logger.info(f"[AUTH] Redirecting to: {frontend_redirect}")
+        
         # Редиректим на фронт + ставим JWT в httpOnly cookie
         redirect_url = f"{frontend_redirect}?token={jwt_token}"
         resp = RedirectResponse(redirect_url)
@@ -194,7 +189,7 @@ async def oauth_callback(
             max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         )
 
-        # Чистим временные куки
+        # Clean up temporary cookies
         _del_tmp_cookie(resp, "oauth_state")
         _del_tmp_cookie(resp, "oauth_redirect")
 
@@ -203,12 +198,10 @@ async def oauth_callback(
     except HTTPException:
         raise
     except Exception as e:
-        # Log the error for debugging
         import traceback
-        print(f"[AUTH ERROR] OAuth callback failed: {str(e)}")
-        print(traceback.format_exc())
+        logger.error(f"[AUTH ERROR] OAuth callback failed: {str(e)}")
+        logger.error(traceback.format_exc())
         
-        # Redirect to frontend with error message
         error_msg = "Authentication failed. Please try again."
         error_url = f"{settings.FRONTEND_URL}/login?error={error_msg}"
         return RedirectResponse(error_url)
@@ -256,7 +249,7 @@ async def refresh_token(request: Request, response: Response):
     if not token_data:
         raise HTTPException(status_code=401, detail="Токен недействителен или истек срок действия")
 
-    user = db_manager.get_user_by_id(int(token_data.sub))
+    user = await auth_service.get_user_by_id(int(token_data.sub))
     if not user:
         raise HTTPException(status_code=401, detail="Пользователь не найден")
 

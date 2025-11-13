@@ -8,8 +8,8 @@ logger = logging.getLogger(__name__)
 
 class OpenAIService:
     """
-    Modern OpenAI service with chat history support and structured prompts.
-    Combines the best of both legacy and new approaches.
+    OpenAI service with chat history support and structured prompts.
+
     """
     
     def __init__(self):
@@ -44,7 +44,7 @@ class OpenAIService:
             messages = []
             
             if use_structured_prompts:
-                # NEW METHOD: Use structured prompts (recommended)
+                # STRUCTURED PROMPT METHOD
                 system_prompt = self._build_system_prompt()
                 user_prompt = self._build_user_prompt(query, context or "", scarcity_note or "")
                 

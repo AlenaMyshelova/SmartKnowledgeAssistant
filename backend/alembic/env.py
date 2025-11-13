@@ -10,6 +10,8 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from app.models.database_models import Base
 
+compare_type=True
+render_as_batch=True
 # this is the Alembic Config object
 config = context.config
 

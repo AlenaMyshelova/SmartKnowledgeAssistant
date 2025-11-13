@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     # Data
     DATABASE_URL: str = "sqlite:///./data/assistant.db"
-    COMPANY_FAQS_PATH: Optional[str] = None  # путь к CSV (опц.)
+    COMPANY_FAQS_PATH: Optional[str] = None  # direct path to company FAQs file
 
     # JWT / Auth
     SECRET_KEY: str

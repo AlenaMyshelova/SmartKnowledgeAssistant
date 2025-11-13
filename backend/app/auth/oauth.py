@@ -170,7 +170,7 @@ class GoogleOAuth(OAuthProvider):
             "provider_id": str(user_data.get("sub")),
             "email": user_data.get("email"),
             "name": user_data.get("name") or (user_data.get("email", "").split("@")[0]),
-            "avatar_url": user_data.get("picture"),
+            "avatar_url": user_data.get("avatar_url"),
             "provider": "google",
             "provider_data": user_data,
         }
