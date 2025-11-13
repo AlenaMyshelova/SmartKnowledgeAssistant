@@ -2,11 +2,12 @@ from fastapi import Depends, HTTPException, status, Cookie
 from fastapi.security import OAuth2PasswordBearer, HTTPBearer, HTTPAuthorizationCredentials
 from starlette.requests import Request
 from typing import Optional, Dict, Any, Union
-
+import logging
+from app.services.auth_service import auth_service 
 from app.auth.jwt import decode_access_token, verify_token
-from app.database import db_manager
 from app.models.user import User, TokenData
 
+logger = logging.getLogger(__name__)
 # Schema OAuth2 for obtaining token from Authorization header
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
 
@@ -54,11 +55,9 @@ async def get_current_user_optional(
     # Получаем пользователя из базы данных
     try:
         if hasattr(token_data, 'sub') and token_data.sub:
-            # Получаем по ID, если есть
-            user = db_manager.get_user_by_id(int(token_data.sub))
+            user = await auth_service.get_user_by_id(int(token_data.sub))
         elif hasattr(token_data, 'email') and token_data.email:
-            # Резервный метод - получение по email
-            user = db_manager.get_user_by_email(token_data.email)
+            user = await auth_service.get_user_by_email(token_data.email)
         else:
             return None
         
@@ -67,7 +66,7 @@ async def get_current_user_optional(
         
         return user
     except Exception as e:
-        print(f"Error getting user from token: {e}")
+        logger.error(f"Error getting user from token: {e}")
         return None
 
 async def get_current_user(
