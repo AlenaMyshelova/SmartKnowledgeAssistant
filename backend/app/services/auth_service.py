@@ -60,14 +60,14 @@ class AuthService:
         name: str,
         oauth_provider: str,
         oauth_id: str,
-        picture: Optional[str] = None
+        avatar_url: Optional[str] = None
     ) -> Optional[User]:
         """Create new user."""
         try:
             user_data = {
                 "email": email,
                 "name": name,
-                "picture": picture,
+                "avatar_url": avatar_url,
                 "oauth_provider": oauth_provider,
                 "oauth_id": oauth_id,
             }
@@ -97,7 +97,7 @@ class AuthService:
         provider_id: str,
         email: str,
         name: str,
-        picture: Optional[str] = None
+        avatar_url: Optional[str] = None
     ) -> Optional[User]:
         """
         Get existing OAuth user or create new one.
@@ -119,7 +119,7 @@ class AuthService:
                 name=name,
                 oauth_provider=provider,
                 oauth_id=provider_id,
-                picture=picture
+                avatar_url=avatar_url
             )
             
             if new_user:

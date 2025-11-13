@@ -17,7 +17,7 @@ from app.models.chat import (
 )
 from app.models.user import User
 from app.auth.deps import get_current_user
-from app.database import db_manager  # только для поиска (persisted)
+from app.database import db_manager  
 
 router = APIRouter(tags=["chat"])
 
