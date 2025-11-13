@@ -210,7 +210,8 @@ class DatabaseManager:
         chat_id: int,
         title: Optional[str] = None,
         is_archived: Optional[bool] = None,
-        is_pinned: Optional[bool] = None
+        is_pinned: Optional[bool] = None,
+        is_incognito: Optional[bool] = None,
     ) -> Optional[PydanticChatSession]:
         """Update chat session."""
         try:
@@ -225,6 +226,8 @@ class DatabaseManager:
                     chat.is_archived = is_archived
                 if is_pinned is not None:
                     chat.is_pinned = is_pinned
+                if is_incognito is not None:
+                    chat.is_incognito = is_incognito    
                     
                 chat.updated_at = datetime.utcnow()
                 session.flush()
@@ -317,20 +320,23 @@ class DatabaseManager:
     def get_chat_messages(
         self, 
         chat_id: int, 
-        limit: int = 100,
+        limit: Optional[int] = None,
         offset: int = 0
     ) -> List[PydanticMessage]:
         """Get chat messages."""
         try:
             with self.get_session() as session:
-                db_messages = (
-                    session.query(SQLChatMessage)
-                    .filter_by(chat_id=chat_id)
-                    .order_by(SQLChatMessage.created_at.asc())
-                    .offset(offset)
-                    .limit(limit)
-                    .all()
-                )
+                query = (
+                        session.query(SQLChatMessage)
+                        .filter_by(chat_id=chat_id)
+                        .order_by(SQLChatMessage.created_at.asc())
+                        .offset(offset)
+                    )
+
+                if limit is not None:
+                        query = query.limit(limit)
+
+                db_messages = query.all()
                 
                 return [self._sqlalchemy_message_to_pydantic(msg) for msg in db_messages]
                 
@@ -383,7 +389,7 @@ class DatabaseManager:
                         messages_query = messages_query.filter(
                             SQLChatSession.is_archived == False
                         )
-                    
+                    messages_query = messages_query.order_by(SQLChatMessage.created_at.desc())
                     seen_chats = {r["id"] for r in results}
                     
                     for msg in messages_query.limit(limit - len(results)).all():
@@ -478,10 +484,9 @@ class DatabaseManager:
                         
             except Exception as e:
                 logger.warning(f"Could not count messages for chat {db_session.id}: {e}")
-                message_count = 1
+                message_count = 0   
         else:
-        #  Если session не передана, ставим 1 чтобы показать чат  
-             message_count = 1        
+            message_count = 0
 
         return PydanticChatSession(
             id=db_session.id,

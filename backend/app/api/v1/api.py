@@ -25,6 +25,7 @@ from fastapi import APIRouter
 from fastapi.responses import RedirectResponse
 
 from app.api.v1.endpoints import auth, chat, data_sources, system, speech
+ 
 
 # Главный роутер API v1
 api_router = APIRouter()
