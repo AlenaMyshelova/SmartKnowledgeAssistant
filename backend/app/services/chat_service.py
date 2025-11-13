@@ -2,7 +2,6 @@ from typing import List, Optional, Dict, Any
 import logging
 from datetime import datetime
 
-from app.database import db_manager
 from app.models.chat import ChatSession, ChatMessage
 from app.data_manager import DataManager
 from app.chat_utils import build_context_from_results
@@ -49,7 +48,7 @@ class ChatService:
                 title = f"Chat {datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
             if is_incognito:
-                # true incognito — только в памяти
+                # for incognito chats, create in-memory
                 cid = self._new_incognito_id()
                 now = datetime.utcnow()
                 self._incognito_chats[cid] = {
@@ -118,6 +117,24 @@ class ChatService:
         except Exception as e:
             logger.error(f"Error getting user chats: {e}")
             return []
+    async def search_user_chats(
+            self,
+            user_id: int,
+            query: str,
+            include_archived: bool = False,
+            limit: int = 50
+        ) -> List[Dict[str, Any]]:
+            """Search in user's persisted chats (title + content)."""
+            try:
+                return self.db.search_chats(
+                    user_id=user_id,
+                    query=query,
+                    include_archived=include_archived,
+                    limit=limit
+                )
+            except Exception as e:
+                logger.error(f"Error searching chats: {e}")
+                return []    
 
     async def update_chat(
         self,
@@ -127,7 +144,7 @@ class ChatService:
         is_pinned: Optional[bool] = None,
         is_incognito: Optional[bool] = None,
     ) -> Optional[ChatSession]:
-        """Обновлять incognito нельзя (они эфемерны)."""
+        """Incognito can not be updated."""
         try:
             if self._is_incognito_chat_id(chat_id):
                 logger.warning("Attempt to update incognito chat ignored")
@@ -159,15 +176,17 @@ class ChatService:
             return False
 
     def clear_incognito_chats(self, user_id: int) -> int:
-        """Удалить ВСЕ инкогнито-чаты пользователя из памяти."""
+        """Clear all incognito chats for a user."""
         to_delete = [cid for cid, ch in self._incognito_chats.items() if ch["user_id"] == user_id]
         for cid in to_delete:
             self._incognito_chats.pop(cid, None)
             self._incognito_messages.pop(cid, None)
+
+        logger.info(f"Cleared {len(to_delete)} incognito chats for user {user_id}")    
         return len(to_delete)
 
     async def switch_user_mode(self, user_id: int, to_incognito: bool) -> Dict[str, Any]:
-        """Если выходим из инкогнито — мгновенно чистим всё."""
+        """Switch user mode between incognito and normal."""
         if not to_incognito:
             cleared = self.clear_incognito_chats(user_id)
             logger.info(f"[mode-switch] cleared {cleared} incognito chats for user {user_id}")
@@ -175,43 +194,48 @@ class ChatService:
         return {"mode": "incognito", "cleared": 0}
 
     async def verify_chat_owner(self, chat_id: int, user_id: int) -> bool:
-        """Унифицированная проверка владельца чата (incognito + persisted)."""
+        """Verify user owns the chat."""
         if self._is_incognito_chat_id(chat_id):
             ch = self._incognito_chats.get(chat_id)
             return bool(ch and ch["user_id"] == user_id)
-        # persisted
-        sessions = self.db.get_user_chat_sessions(user_id=user_id, include_archived=True, limit=1_000)
-        return any(s.id == chat_id for s in sessions)
+         
+        return self.db.chat_belongs_to_user(chat_id, user_id)
 
-    async def get_chat_session(self, chat_id: int) -> Optional[ChatSession]:
-        """Вернуть ChatSession (incognito или persisted) без загрузки сообщений."""
-        if self._is_incognito_chat_id(chat_id):
-            ch = self._incognito_chats.get(chat_id)
-            if not ch:
+    async def get_chat_session(
+        self, 
+        chat_id: int, 
+        user_id: Optional[int] = None
+    ) -> Optional[ChatSession]:
+        """Get chat session by ID (optimized)."""
+        try:
+                # Incognito
+                if self._is_incognito_chat_id(chat_id):
+                    ch = self._incognito_chats.get(chat_id)
+                    if not ch:
+                        return None
+                    
+                    if user_id is not None and ch["user_id"] != user_id:
+                        return None
+                    
+                    msgs = self._incognito_messages.get(chat_id, [])
+                    return ChatSession(
+                        id=chat_id,
+                        user_id=ch["user_id"],
+                        title=ch["title"],
+                        created_at=ch["created_at"],
+                        updated_at=ch["updated_at"],
+                        is_archived=False,
+                        is_pinned=False,
+                        is_incognito=True,
+                        message_count=len(msgs),
+                        last_message=(msgs[-1]["content"][:100] if msgs else None),
+                    )
+                # Persisted
+                return self.db.get_chat_session_by_id(chat_id, user_id)
+                
+        except Exception as e:
+                logger.error(f"Error getting chat session {chat_id}: {e}")
                 return None
-            msgs = self._incognito_messages.get(chat_id, [])
-            return ChatSession(
-                id=chat_id,
-                user_id=ch["user_id"],
-                title=ch["title"],
-                created_at=ch["created_at"],
-                updated_at=ch["updated_at"],
-                is_archived=False,
-                is_pinned=False,
-                is_incognito=True,
-                message_count=len(msgs),
-                last_message=(msgs[-1]["content"][:100] if msgs else None),
-            )
-        # persisted
-        # дешёвый способ — взять из списка чатов
-        # (если нужно часто — добавь прямой метод в DatabaseManager)
-        # Возьмем все неархивные + архивные до 1k
-        # чтобы не плодить отдельный DAL-метод
-        # (можно оптимизировать позже).
-        all_chats = self.db.get_user_chat_sessions(user_id=None, include_archived=True, limit=0)  # не знаем user_id
-        # ↑ если твой DAL требует user_id, убери это и получай снаружи.
-        # Проще: вернём None и пусть роутер отдаст 404 если не нашлось.
-        return None  # оставим нейтрально — роутер и так строит ответ из verify + get_user_chats
 
     # ========== messages ==========
     async def add_message(
@@ -279,7 +303,6 @@ class ChatService:
                     for m in msgs
                 ]
             else:
-                # DatabaseManager уже умеет limit/offset
                 return self.db.get_chat_messages(chat_id, limit or 100, offset)
         except Exception as e:
             logger.error(f"Error getting messages for chat {chat_id}: {e}")
@@ -313,7 +336,9 @@ class ChatService:
 
             # LLM
             ai_response = await openai_service.generate_response(
-                query=user_message, context=context, scarcity_note=scarcity_note
+                query=user_message, 
+                context=context, 
+                scarcity_note=scarcity_note
             )
             if not ai_response:
                 ai_response = "Error occurred while generating response."
@@ -346,7 +371,11 @@ class ChatService:
                 chat_id=chat_id, user_message=user_message, data_source=data_source
             )
             if not ai_message:
-                return {"response": "Error occurred while processing your request.", "sources": [], "message_id": None}
+                return {"response": "Error occurred while processing your request.", 
+                        "sources": [], 
+                        "message_id": None,
+                        "chat_id": chat_id
+                        }
 
             relevant_data = self._search_relevant_data(user_message, data_source)
             sources = [
@@ -367,7 +396,11 @@ class ChatService:
             }
         except Exception as e:
             logger.error(f"Error getting response with sources: {e}")
-            return {"response": "Error occurred while processing your request.", "sources": [], "message_id": None}
+            return {"response": "Error occurred while processing your request.", 
+                    "sources": [], 
+                    "message_id": None,
+                    "chat_id": chat_id
+            }
 
     # ========== context & search utils ==========
     def _search_relevant_data(self, message: str, data_source: str) -> List[Dict[str, Any]]:
@@ -419,31 +452,20 @@ class ChatService:
             return {}
 
     async def get_user_chat_statistics(self, user_id: int) -> Dict[str, Any]:
+        """Get aggregated statistics for all user's chats."""
         try:
-            chats = await self.get_user_chats(user_id, include_archived=True)
-            total_messages = 0
-            archived = 0
-            pinned = 0
-            incognito = 0
-            for chat in chats:
-                msgs = await self.get_chat_messages(chat.id)
-                total_messages += len(msgs)
-                if chat.is_archived:
-                    archived += 1
-                if chat.is_pinned:
-                    pinned += 1
-                if getattr(chat, "is_incognito", False):
-                    incognito += 1
-            return {
-                "total_chats": len(chats),
-                "total_messages": total_messages,
-                "archived_chats": archived,
-                "pinned_chats": pinned,
-                "incognito_chats": incognito,
-                "average_messages_per_chat": (total_messages / len(chats)) if chats else 0,
-            }
+            stats = self.db.get_user_statistics(user_id)
+            # Add incognito count
+            incognito = sum(
+                1 for ch in self._incognito_chats.values()
+                if ch["user_id"] == user_id
+            )
+            stats["incognito_chats"] = incognito
+            
+            return stats
+            
         except Exception as e:
-            logger.error(f"Error getting user chat statistics: {e}")
+            logger.error(f" Error getting user chat statistics: {e}")
             return {}
 
 

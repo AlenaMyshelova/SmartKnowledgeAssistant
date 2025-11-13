@@ -257,14 +257,6 @@ async def delete_chat_session(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ===========================
-# Search (только по persisted)
-# ===========================
-
-
-
- 
-
 
 # ===========================
 # Incognito management

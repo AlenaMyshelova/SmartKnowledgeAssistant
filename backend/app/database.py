@@ -8,7 +8,7 @@ from datetime import datetime
 from contextlib import contextmanager
 
 # SQLAlchemy imports
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, func, case
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -518,6 +518,88 @@ class DatabaseManager:
             metadata=metadata,
             created_at=db_message.created_at
         )
+    
+    def chat_belongs_to_user(self, chat_id: int, user_id: int) -> bool:
+        """Check if chat belongs to user (efficient - single query)."""
+        try:
+            with self.get_session() as session:
+                exists = session.query(SQLChatSession).filter_by(
+                    id=chat_id,
+                    user_id=user_id
+                ).first() is not None
+                return exists
+        except Exception as e:
+            logger.error(f"Error checking chat ownership: {e}")
+            return False
+    
+    def get_user_statistics(self, user_id: int) -> Dict[str, Any]:
+        """Get user statistics with single aggregated query."""
+        try:
+            with self.get_session() as session:
+                stats = session.query(
+                    func.count(func.distinct(SQLChatSession.id)).label('total_chats'),
+                    func.count(SQLChatMessage.id).label('total_messages'),
+                    func.sum(case(
+                        (SQLChatSession.is_archived == True, 1),
+                        else_=0
+                    )).label('archived_chats'),
+                    func.sum(case(
+                        (SQLChatSession.is_pinned == True, 1),
+                        else_=0
+                    )).label('pinned_chats')
+                ).select_from(SQLChatSession).outerjoin(
+                    SQLChatMessage,
+                    SQLChatMessage.chat_id == SQLChatSession.id
+                ).filter(
+                    SQLChatSession.user_id == user_id
+                ).first()
+                
+                total_chats = stats.total_chats or 0
+                total_messages = stats.total_messages or 0
+                
+                return {
+                    'total_chats': total_chats,
+                    'total_messages': total_messages,
+                    'archived_chats': stats.archived_chats or 0,
+                    'pinned_chats': stats.pinned_chats or 0,
+                    'average_messages_per_chat': (
+                        total_messages / total_chats if total_chats > 0 else 0
+                    )
+                }
+        except Exception as e:
+            logger.error(f"Error getting user statistics: {e}")
+            return {
+                'total_chats': 0,
+                'total_messages': 0,
+                'archived_chats': 0,
+                'pinned_chats': 0,
+                'average_messages_per_chat': 0
+            }
+
+    def get_chat_session_by_id(self, 
+                               chat_id: int, 
+                               user_id: Optional[int] = None
+                               ) -> Optional[PydanticChatSession]:
+        """
+        Get single chat session by ID with optional ownership check.
+        """
+        try:
+            with self.get_session() as session:
+                query = session.query(SQLChatSession).filter_by(id=chat_id)
+                
+                if user_id is not None:
+                    query = query.filter_by(user_id=user_id)
+                
+                db_session = query.first()
+                
+                if not db_session:
+                    return None
+                
+                return self._sqlalchemy_session_to_pydantic(db_session, session)
+                
+        except Exception as e:
+            logger.error(f"Error getting chat session {chat_id}: {e}")
+            return None        
 
 
 # Global instance
