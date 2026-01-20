@@ -37,7 +37,7 @@ class Settings(BaseSettings):
 
     # URLs
     FRONTEND_URL: str = "http://localhost:5173"
-    BACKEND_URL: str = "http://localhost:8001"
+    BACKEND_URL: str = "http://localhost:8000"
 
     # Debug
     DEBUG: bool = True
@@ -48,8 +48,8 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
-        "http://localhost:8001",
-        "http://127.0.0.1:8001",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
     ]
 
     @cached_property

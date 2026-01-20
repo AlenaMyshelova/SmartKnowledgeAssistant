@@ -117,6 +117,7 @@ class ChatService:
         except Exception as e:
             logger.error(f"Error getting user chats: {e}")
             return []
+        
     async def search_user_chats(
             self,
             user_id: int,
@@ -206,7 +207,7 @@ class ChatService:
         chat_id: int, 
         user_id: Optional[int] = None
     ) -> Optional[ChatSession]:
-        """Get chat session by ID (optimized)."""
+        """Get chat session by ID  """
         try:
                 # Incognito
                 if self._is_incognito_chat_id(chat_id):

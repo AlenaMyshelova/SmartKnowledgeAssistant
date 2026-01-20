@@ -355,34 +355,45 @@ class DatabaseManager:
         include_archived: bool = False,
         limit: int = 50
     ) -> List[Dict[str, Any]]:
+
         try:
             with self.get_session() as session:
-                # Search in titles
-                chats_query = session.query(SQLChatSession).filter(
+                search_pattern = f"%{query}%"
+                
+                results = []
+                seen_chat_ids = set()
+                
+                # 1. Поиск в заголовках чатов
+                title_query = session.query(SQLChatSession).filter(
                     SQLChatSession.user_id == user_id,
-                    SQLChatSession.title.contains(query)
+                    SQLChatSession.is_incognito == False,  
+                    SQLChatSession.title.ilike(search_pattern)  
                 )
                 
                 if not include_archived:
-                    chats_query = chats_query.filter_by(is_archived=False)
+                    title_query = title_query.filter(SQLChatSession.is_archived == False)
                 
-                results = []
-                for chat in chats_query.limit(limit).all():
+                title_query = title_query.order_by(SQLChatSession.updated_at.desc())
+                
+                for chat in title_query.limit(limit).all():
                     results.append({
                         "id": chat.id,
                         "title": chat.title,
-                        "updated_at": chat.updated_at,
-                        "match_type": "title"
+                        "updated_at": chat.updated_at.isoformat() if chat.updated_at else None,
+                        "match_type": "title",
+                        "is_incognito": False
                     })
+                    seen_chat_ids.add(chat.id)
                 
-                # Search in messages if we need more results
-                if len(results) < limit:
+                remaining_limit = limit - len(results)
+                if remaining_limit > 0:
                     messages_query = (
                         session.query(SQLChatMessage)
-                        .join(SQLChatSession)
+                        .join(SQLChatSession, SQLChatMessage.chat_id == SQLChatSession.id)
                         .filter(
                             SQLChatSession.user_id == user_id,
-                            SQLChatMessage.content.contains(query)
+                            SQLChatSession.is_incognito == False,   
+                            SQLChatMessage.content.ilike(search_pattern)   
                         )
                     )
                     
@@ -390,19 +401,30 @@ class DatabaseManager:
                         messages_query = messages_query.filter(
                             SQLChatSession.is_archived == False
                         )
-                    messages_query = messages_query.order_by(SQLChatMessage.created_at.desc())
-                    seen_chats = {r["id"] for r in results}
                     
-                    for msg in messages_query.limit(limit - len(results)).all():
-                        if msg.chat_id not in seen_chats:
-                            results.append({
-                                "id": msg.chat.id,
-                                "title": msg.chat.title,
-                                "updated_at": msg.chat.updated_at,
-                                "match_type": "message",
-                                "matched_content": msg.content[:100]
-                            })
-                            seen_chats.add(msg.chat_id)
+                    messages_query = messages_query.order_by(
+                        SQLChatMessage.created_at.desc()
+                    )
+                    
+                    for msg in messages_query.limit(remaining_limit * 2).all(): 
+                        if msg.chat_id not in seen_chat_ids:
+                            chat = session.query(SQLChatSession).filter_by(
+                                id=msg.chat_id
+                            ).first()
+                            
+                            if chat:
+                                results.append({
+                                    "id": chat.id,
+                                    "title": chat.title,
+                                    "updated_at": chat.updated_at.isoformat() if chat.updated_at else None,
+                                    "match_type": "message",
+                                    "matched_content": msg.content[:100] + ("..." if len(msg.content) > 100 else ""),
+                                    "is_incognito": False
+                                })
+                                seen_chat_ids.add(msg.chat_id)
+                            
+                            if len(results) >= limit:
+                                break
                 
                 return results[:limit]
                 
@@ -608,13 +630,15 @@ class DatabaseManager:
                 
                 if user_id is not None:
                     query = query.filter_by(user_id=user_id)
+
+                query = query.options(joinedload(SQLChatSession.messages))    
                 
                 db_session = query.first()
                 
                 if not db_session:
                     return None
                 
-                return self._sqlalchemy_session_to_pydantic(db_session, session)
+                return self._sqlalchemy_session_to_pydantic_with_loaded_messages(db_session)
                 
         except Exception as e:
             logger.error(f"Error getting chat session {chat_id}: {e}")

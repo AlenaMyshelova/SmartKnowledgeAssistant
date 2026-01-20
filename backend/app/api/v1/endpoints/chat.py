@@ -118,7 +118,6 @@ async def search_chats(
     limit: int = Query(50, ge=1, le=200),
     current_user: User = Depends(get_current_user),
 ):
-    """Поиск по истории пользовательских чатов (в БД)."""
     try:
         results= await chat_service.search_user_chats(
             user_id=current_user.id,
@@ -174,12 +173,9 @@ async def get_chat_history(
         owns = await chat_service.verify_chat_owner(chat_id, current_user.id)
         if not owns:
             raise HTTPException(status_code=404, detail="Chat not found or access denied")
-
+        
         messages = await chat_service.get_chat_messages(chat_id, limit=limit, offset=offset)
-
-        # Построим ChatSession «на лету» (берём из объединённого списка)
-        chats = await chat_service.get_user_chats(current_user.id, include_archived=True, include_incognito=True)
-        chat_meta = next((c for c in chats if c.id == chat_id), None)
+        chat_meta = await chat_service.get_chat_session(chat_id, current_user.id)
         if not chat_meta:
             raise HTTPException(status_code=404, detail="Chat not found")
 

@@ -74,7 +74,7 @@ export default function Login() {
       setLoading(true); // Показываем индикатор загрузки
 
       const baseUrl =
-        import.meta.env.VITE_API_URL || "http://localhost:8001/api/v1";
+        import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
 
       // Логирование для отладки
       console.log(`Redirecting to OAuth provider: ${provider}`);

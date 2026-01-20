@@ -1,8 +1,4 @@
-"""
-Pydantic models for chat API endpoints.
-These models work with SQLAlchemy models from database_models.py
-"""
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, field_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
@@ -22,18 +18,15 @@ class DataSource(str, Enum):
 
 # Base models for chat sessions
 class ChatSessionBase(BaseModel):
-    """Base model for chat sessions."""
     title: Optional[str] = None
     is_archived: bool = False
     is_pinned: bool = False
     
 class ChatSessionCreate(ChatSessionBase):
-    """Model for creating a new chat session."""
     is_incognito: bool = False
     first_message: Optional[str] = None
 
 class ChatSessionUpdate(BaseModel):
-    """Model for updating chat sessions."""
     title: Optional[str] = None
     is_archived: Optional[bool] = None
     is_pinned: Optional[bool] = None
@@ -60,7 +53,6 @@ class MessageBase(BaseModel):
     metadata: Optional[Dict[str, Any]] = {}
 
 class MessageCreate(MessageBase):
-    """Model for creating new messages."""
     chat_id: Optional[int] = None
 
 class ChatMessage(MessageBase):
@@ -75,16 +67,28 @@ class ChatMessage(MessageBase):
 
 # Request/Response models for API endpoints
 class ChatRequest(BaseModel):
-    """Request model for sending chat messages."""
     message: str = Field(..., min_length=1, max_length=4000)
     chat_id: Optional[int] = None
     data_source: str = DataSource.COMPANY_FAQS
     is_incognito: bool = False
-    context_messages: Optional[int] = 10
-    temperature: Optional[float] = 0.7
+    context_messages: Optional[int] = Field(10, ge=1, le=50)   
+    temperature: Optional[float] = Field(0.7, ge=0.0, le=2.0)   
 
+    @field_validator('message')
+    @classmethod
+    def validate_message(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError('Message cannot be empty')
+        return v.strip()
+    
+    @field_validator('data_source')
+    @classmethod
+    def validate_data_source(cls, v: str) -> str:
+        valid_sources = [e.value for e in DataSource]
+        if v not in valid_sources:
+            raise ValueError(f'Invalid data source. Must be one of: {valid_sources}')
+        return v
 class ChatResponse(BaseModel):
-    """Response model for chat messages."""
     response: str
     chat_id: int
     message_id: Optional[int] = None
@@ -96,7 +100,6 @@ class ChatResponse(BaseModel):
     processing_time: Optional[float] = None
 
 class ChatListResponse(BaseModel):
-    """Response model for chat list."""
     chats: List[ChatSession]
     total: int
     page: int = 1
@@ -104,23 +107,28 @@ class ChatListResponse(BaseModel):
     has_more: bool = False
 
 class ChatHistoryResponse(BaseModel):
-    """Response model for chat history."""
     chat: ChatSession
     messages: List[ChatMessage]
     total_messages: int = 0
     has_more: bool = False
 
 class UpdateChatRequest(BaseModel):
-    """Request model for updating chat."""
+
     title: Optional[str] = None
     is_archived: Optional[bool] = None
     is_pinned: Optional[bool] = None
 
 class SearchChatsRequest(BaseModel):
-    """Request model for searching chats."""
     query: str = Field(..., min_length=1, max_length=200)
     include_archived: bool = False
-    limit: int = 50
+    limit: int = Field(50, ge=1, le=100) 
+
+    @field_validator('query')
+    @classmethod
+    def validate_query(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError('Search query cannot be empty')
+        return v.strip()
 
 class ChatModeStatus(BaseModel):
     """Response model for current chat mode status."""
@@ -129,7 +137,7 @@ class ChatModeStatus(BaseModel):
     total_chats: int = 0
     active_incognito_sessions: List[int] = []
 
-# Compatibility aliases
+
 CreateChatRequest = ChatSessionCreate
 Message = ChatMessage
 MessageResponse = ChatMessage
