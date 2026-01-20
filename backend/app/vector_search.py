@@ -29,7 +29,7 @@ class VectorSearchEngine:
         # Словари для хранения индексов и данных
         self.indexes = {}          # FAISS индексы {source_id: index}
         self.documents = {}        # Исходные документы {source_id: [docs]}
-        self.last_updated = {}     # Время последнего обновления {source_id: timestamp}
+        self.last_updated = {}     # {source_id: timestamp}
     
     def _get_embedding(self, text: str) -> List[float]:
         """Получение эмбеддинга для текста через OpenAI API."""

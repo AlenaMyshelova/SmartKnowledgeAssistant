@@ -56,8 +56,8 @@ class OAuthProvider:
     ) -> str:
         """Exchange authorization code for access token."""
         print(f"[OAUTH] Exchanging code for token")
-        print(f"[OAUTH] Provider: {self.name}")
-        print(f"[OAUTH] Redirect URI: {redirect_uri}")
+        logger.info(f"[OAUTH] Provider: {self.name}")
+        logger.debug(f"[OAUTH] Redirect URI: {redirect_uri}")
         
         data = {
             "client_id": self.client_id,
@@ -137,7 +137,7 @@ class GoogleOAuth(OAuthProvider):
         # Добавляем параметры специфичные для Google
         google_params = {
             "access_type": "offline",  # Для получения refresh token
-            "prompt": "select_account",  # ВАЖНО: Всегда показывать страницу выбора аккаунта
+            "prompt": "select_account",  # Всегда показывать страницу выбора аккаунта
             "include_granted_scopes": "true",  # Включить все разрешенные scope
         }
         
@@ -170,7 +170,7 @@ class GoogleOAuth(OAuthProvider):
             "provider_id": str(user_data.get("sub")),
             "email": user_data.get("email"),
             "name": user_data.get("name") or (user_data.get("email", "").split("@")[0]),
-            "avatar_url": user_data.get("avatar_url"),
+            "avatar_url": user_data.get("picture"),
             "provider": "google",
             "provider_data": user_data,
         }
@@ -247,7 +247,7 @@ def get_available_providers() -> List[Dict[str, str]]:
 
 
 def get_oauth_provider(provider_name: str) -> OAuthProvider:
-    """Фабрика: возвращает инстанс конкретного провайдера."""
+    """возвращает инстанс конкретного провайдера."""
     if provider_name not in settings.OAUTH_PROVIDERS:
         raise HTTPException(status_code=400, detail=f"Unsupported OAuth provider: {provider_name}")
 

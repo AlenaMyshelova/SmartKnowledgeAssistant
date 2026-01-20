@@ -34,9 +34,6 @@ class User(UserInDB):
     pass
 
 
-
-
-
 class TokenData(BaseModel):
     sub: str  # ID пользователя
     exp: datetime  # Время истечения токена
@@ -49,8 +46,6 @@ class Token(BaseModel):
     token_type: str = "bearer"
     expires_at: int  # Unix timestamp
     user: UserBase
-
-# Additional models for OAuth - provider information
 class OAuthProvider(BaseModel):
     name: str  # Provider name (google, github)
     display_name: str  # Display name (Google, GitHub)

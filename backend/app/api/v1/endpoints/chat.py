@@ -1,6 +1,7 @@
 from typing import Optional
 import logging
 import time
+from unittest import result
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.services.chat_service import chat_service
@@ -17,10 +18,9 @@ from app.models.chat import (
 )
 from app.models.user import User
 from app.auth.deps import get_current_user
-from app.database import db_manager  
+
 
 router = APIRouter(tags=["chat"])
-
 logger = logging.getLogger(__name__)
 
 
@@ -40,8 +40,6 @@ async def send_message(
     """
     try:
         start = time.time()
-
-        # Создать чат при необходимости
         chat_id = request.chat_id
         if not chat_id:
             session = await chat_service.create_chat_session(
@@ -53,12 +51,9 @@ async def send_message(
                 raise HTTPException(status_code=500, detail="Failed to create chat")
             chat_id = session.id
 
-        # Проверка владельца
         owns = await chat_service.verify_chat_owner(chat_id, current_user.id)
         if not owns:
             raise HTTPException(status_code=404, detail="Chat not found or access denied")
-
-        # Получить ответ + источники
         result = await chat_service.get_response_with_sources(
             chat_id=chat_id,
             user_message=request.message,
@@ -69,7 +64,7 @@ async def send_message(
             response=result["response"],
             chat_id=result["chat_id"],
             message_id=result["message_id"],
-            user_message_id=None,  # при желании можно вернуть из ChatService
+            user_message_id=None,  #  !вернуть из ChatService
             is_incognito=(result["chat_id"] < 0),
             sources=result["sources"],
             processing_time=time.time() - start,
@@ -125,13 +120,13 @@ async def search_chats(
 ):
     """Поиск по истории пользовательских чатов (в БД)."""
     try:
-        db_results = db_manager.search_chats(
+        results= await chat_service.search_user_chats(
             user_id=current_user.id,
             query=query,
             include_archived=include_archived,
             limit=limit,
         )
-        return {"results": db_results, "total": len(db_results)}
+        return {"results": results, "total": len(results)}
     except Exception as e:
         logger.exception("Error searching chats")
         raise HTTPException(status_code=500, detail=str(e)) 
@@ -165,10 +160,7 @@ async def get_chat_sessions(
     except Exception as e:
         logger.exception("Error fetching chat sessions")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-
-
+    
 
 @router.get("/sessions/{chat_id}", response_model=ChatHistoryResponse)
 async def get_chat_history(

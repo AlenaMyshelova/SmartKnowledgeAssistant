@@ -12,9 +12,9 @@ logger = logging.getLogger(__name__)
 
 class ChatService:
     """
-    ChatService using SQLAlchemy ORM + structured chat management.
+    ChatService using SQLAlchemy ORM + chat management.
     - Persisted chats → через DatabaseManager
-    - Incognito → in-memory (отрицательные chat_id)
+    - Incognito → in-memory (- chat_id)
     """
 
     def __init__(self):
@@ -468,6 +468,4 @@ class ChatService:
             logger.error(f" Error getting user chat statistics: {e}")
             return {}
 
-
-# Singleton
 chat_service = ChatService()

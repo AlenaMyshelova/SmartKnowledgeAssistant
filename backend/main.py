@@ -43,16 +43,13 @@ async def startup_event():
     """Выполняется при запуске приложения."""
     print(f"🚀 Starting {settings.PROJECT_NAME} v{settings.VERSION}")
     
-    # Инициализация базы данных
     print("📊 Initializing database...")
     try:
         init_db()
         print("✅ Database initialized successfully")
     except Exception as e:
         print(f"❌ Database initialization failed: {e}")
-        # В продакшене можно добавить exit(1) если БД критична
     
-    # Проверяем векторный индекс FAQ
     print("🔍 Checking vector search indices...")
     try:
         data_manager._ensure_faq_index()
@@ -60,7 +57,6 @@ async def startup_event():
     except Exception as e:
         print(f"⚠️  Vector search initialization warning: {e}")
     
-    # Проверяем OAuth настройки
     print("🔐 Checking OAuth configuration...")
     oauth_providers = settings.OAUTH_PROVIDERS
     if oauth_providers:
@@ -96,7 +92,7 @@ def health_check():
     return {
         "status": "healthy",
         "version": settings.VERSION,
-        "timestamp": "2024-01-01T00:00:00Z"  # В реальности используйте datetime.utcnow()
+        "timestamp": "2024-01-01T00:00:00Z"  # datetime.utcnow()
     }
 
 # Защищенный эндпоинт для проверки аутентификации

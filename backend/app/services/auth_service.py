@@ -3,8 +3,8 @@ import logging
 from datetime import datetime
 
 from app.database import db_manager
-from app.models.user import User
-
+from app.models.user import User, UserCreate
+ 
 logger = logging.getLogger(__name__)
 
 
@@ -60,17 +60,19 @@ class AuthService:
         name: str,
         oauth_provider: str,
         oauth_id: str,
-        avatar_url: Optional[str] = None
+        avatar_url: Optional[str] = None,
+        provider_data: Optional[dict] = None 
     ) -> Optional[User]:
-        """Create new user."""
         try:
-            user_data = {
-                "email": email,
-                "name": name,
-                "avatar_url": avatar_url,
-                "oauth_provider": oauth_provider,
-                "oauth_id": oauth_id,
-            }
+            user_data = UserCreate (
+                email= email,
+                name= name,
+                avatar_url= avatar_url,
+                oauth_provider= oauth_provider,
+                oauth_id= oauth_id,
+                provider_data= provider_data,
+                is_active= True
+                )
             
             user = self.db.create_user(user_data)
             logger.info(f"Created new user: {email} (ID: {user.id})")
@@ -97,7 +99,8 @@ class AuthService:
         provider_id: str,
         email: str,
         name: str,
-        avatar_url: Optional[str] = None
+        avatar_url: Optional[str] = None,
+        provider_data: Optional[dict] = None
     ) -> Optional[User]:
         """
         Get existing OAuth user or create new one.
@@ -119,7 +122,8 @@ class AuthService:
                 name=name,
                 oauth_provider=provider,
                 oauth_id=provider_id,
-                avatar_url=avatar_url
+                avatar_url=avatar_url,
+                provider_data=provider_data 
             )
             
             if new_user:
@@ -131,6 +135,4 @@ class AuthService:
             logger.error(f"Error in get_or_create_oauth_user: {e}")
             return None
 
-
-# Singleton instance
 auth_service = AuthService()

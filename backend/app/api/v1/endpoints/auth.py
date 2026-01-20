@@ -11,6 +11,7 @@ from app.auth.deps import get_current_user
 from app.auth.jwt import create_access_token, decode_access_token
 from app.auth.oauth import get_oauth_provider
 from app.models.user import User
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -64,23 +65,17 @@ async def login_oauth(
 
     # Generate a random state parameter for CSRF protection
     state = secrets.token_urlsafe(32)
-    
-    # URL for OAuth provider authorization
     oauth_provider = get_oauth_provider(provider)
     auth_url = oauth_provider.get_authorization_url(
         redirect_uri=provider_redirect_uri,
         state=state,
     )
     
-    # Create redirect response
     resp = RedirectResponse(url=auth_url)
-
-    # Set cookies
     _set_tmp_cookie(resp, "oauth_state", state)
     final_redirect = redirect_uri or f"{settings.FRONTEND_URL}/auth/callback"
     _set_tmp_cookie(resp, "oauth_redirect", final_redirect)
-
-    return resp  # Return the redirect response
+    return resp 
 
 
 @router.get("/{provider}/callback")
@@ -145,9 +140,7 @@ async def oauth_callback(
             redirect_uri=provider_redirect_uri,
         )
 
-        # Получение профиля пользователя от провайдера
         user_info = await oauth_provider.get_user_info(access_token)
-        # Ожидаемые ключи: provider_id, email, name, avatar_url?, provider_data?
         provider_id = user_info.get("provider_id")
         email = user_info.get("email")
         name = user_info.get("name")
