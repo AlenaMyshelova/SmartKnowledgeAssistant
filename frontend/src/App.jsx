@@ -41,12 +41,9 @@ const theme = createTheme({
 const AuthCallback = () => {
   const navigate = useNavigate();
   useEffect(() => {
-    // Просто перенаправляем на главную страницу чата.
-    // AuthContext сам обработает токен из URL.
     navigate("/chat", { replace: true });
   }, [navigate]);
 
-  // Можно показать индикатор загрузки, пока идет редирект
   return <div>Loading...</div>;
 };
 

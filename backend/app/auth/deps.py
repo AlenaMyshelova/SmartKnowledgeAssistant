@@ -24,7 +24,7 @@ async def get_current_user_optional(
     Возвращает текущего пользователя или None, если пользователь не аутентифицирован.
     Проверяет токен из нескольких источников (заголовок, cookie, query параметр).
     """
-    # Определяем токен из разных источников
+  
     jwt_token = None
     
     # 1. Из стандартного Authorization: Bearer xxx
@@ -42,17 +42,13 @@ async def get_current_user_optional(
     # 4. Из query параметра (для SSE, WebSocket и т.д.)
     else:
         jwt_token = request.query_params.get("token")
-    
-    # Если нет токена, возвращаем None
     if not jwt_token:
         return None
     
-    # Декодируем токен
     token_data = decode_access_token(jwt_token)
     if not token_data:
         return None
     
-    # Получаем пользователя из базы данных
     try:
         if hasattr(token_data, 'sub') and token_data.sub:
             user = await auth_service.get_user_by_id(int(token_data.sub))
@@ -72,10 +68,6 @@ async def get_current_user_optional(
 async def get_current_user(
     current_user: Optional[User] = Depends(get_current_user_optional)
 ) -> User:
-    """
-    Зависимость для получения текущего аутентифицированного пользователя.
-    Выбрасывает исключение, если пользователь не аутентифицирован.
-    """
     if current_user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

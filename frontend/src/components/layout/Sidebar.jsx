@@ -129,18 +129,25 @@ const Sidebar = ({ onClose }) => {
     config: {},
   });
   const scrollableNodeRef = useRef();
+  useEffect(() => {
+    if (searchQuery && (filters.dateRange || filters.dataSource)) {
+      console.log("Filters changed, results will update automatically");
+    }
+  }, [filters.dateRange, filters.dataSource, searchQuery]);
 
-  // 🔥 ФИЛЬТРУЕМ incognito и пустые чаты
   const visibleChats = useMemo(() => {
     const chatList = searchQuery ? searchResults : chats;
 
+    console.log("🔍 searchQuery:", searchQuery);
+    console.log("🔍 searchResults:", searchResults);
+    console.log("🔍 chatList:", chatList);
+
     if (!chatList) return [];
 
-    // Показываем только:
-    // 1. Обычные чаты (НЕ incognito)
-    // 2. С положительными ID
-    // 3. С хотя бы одним сообщением
-    return chatList.filter((chat) => {
+    const filtered = chatList.filter((chat) => {
+      if (searchQuery) {
+        return chat && chat.id > 0 && !chat.is_incognito;
+      }
       return (
         chat &&
         chat.id > 0 &&
@@ -149,6 +156,10 @@ const Sidebar = ({ onClose }) => {
         (chat.message_count > 0 || chat.last_message)
       );
     });
+
+    console.log("visibleChats after filter:", filtered.length, "items");
+
+    return filtered;
   }, [chats, searchResults, searchQuery]);
 
   // Handle chat deletion with undo
@@ -180,7 +191,7 @@ const Sidebar = ({ onClose }) => {
               <ClearIcon fontSize="small" />
             </IconButton>
           ),
-        }
+        },
       );
     }
 
@@ -434,7 +445,7 @@ const Sidebar = ({ onClose }) => {
           sx={{ mb: 1 }}
         />
 
-        {/* 🔥 Incognito Alert */}
+        {/*  Incognito Alert */}
         {isIncognito && (
           <Alert
             severity="info"
@@ -572,25 +583,25 @@ const Sidebar = ({ onClose }) => {
                     "Today",
                     groupedChats.today,
                     "today",
-                    <TodayIcon fontSize="small" />
+                    <TodayIcon fontSize="small" />,
                   )}
                   {renderChatGroup(
                     "Yesterday",
                     groupedChats.yesterday,
                     "yesterday",
-                    <DateRangeIcon fontSize="small" />
+                    <DateRangeIcon fontSize="small" />,
                   )}
                   {renderChatGroup(
                     "Last 7 days",
                     groupedChats.week,
                     "week",
-                    <DateRangeIcon fontSize="small" />
+                    <DateRangeIcon fontSize="small" />,
                   )}
                   {renderChatGroup(
                     "Older",
                     groupedChats.older,
                     "older",
-                    <HistoryIcon fontSize="small" />
+                    <HistoryIcon fontSize="small" />,
                   )}
                 </List>
               </InfiniteScroll>
@@ -600,8 +611,8 @@ const Sidebar = ({ onClose }) => {
                   {searchQuery
                     ? "No results found"
                     : isIncognito
-                    ? "Incognito chats are not saved"
-                    : "No chats yet"}
+                      ? "Incognito chats are not saved"
+                      : "No chats yet"}
                 </Typography>
               </Box>
             )}

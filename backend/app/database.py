@@ -7,12 +7,12 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from contextlib import contextmanager
 
-# SQLAlchemy imports
 from sqlalchemy import create_engine, text, func, case
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
+# from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import sessionmaker, Session, joinedload
 
-# Import models
 from app.models.database_models import (
     Base, 
     User as SQLUser, 
@@ -54,8 +54,6 @@ class DatabaseManager:
             connect_args={"check_same_thread": False}
         )
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
-        
-        # Apply migrations
         self._check_and_apply_migrations()
 
     @contextmanager
@@ -72,7 +70,6 @@ class DatabaseManager:
             session.close()
 
     def _check_and_apply_migrations(self) -> None:
-        """Check and apply Alembic migrations."""
         try:
             from app.database.migration_manager import initialize_migration_manager, get_migration_manager
             
@@ -97,10 +94,8 @@ class DatabaseManager:
     # ---------------------------
     
     def create_user(self, user_data: UserCreate) -> Optional[PydanticUser]:
-        """Create a new user."""
         try:
             with self.get_session() as session:
-                # Check existing
                 existing_user = session.query(SQLUser).filter_by(
                     oauth_provider=user_data.oauth_provider,
                     oauth_id=user_data.oauth_id
@@ -109,7 +104,6 @@ class DatabaseManager:
                 if existing_user:
                     return self._sqlalchemy_user_to_pydantic(existing_user)
                 
-                # Create new
                 db_user = SQLUser(
                     email=user_data.email,
                     name=user_data.name,
@@ -132,7 +126,6 @@ class DatabaseManager:
             return None
 
     def get_user_by_id(self, user_id: int) -> Optional[PydanticUser]:
-        """Get user by ID."""
         try:
             with self.get_session() as session:
                 db_user = session.query(SQLUser).filter_by(
@@ -141,7 +134,6 @@ class DatabaseManager:
                 ).first()
                 
                 return self._sqlalchemy_user_to_pydantic(db_user) if db_user else None
-                
         except Exception as e:
             logger.error(f"Error getting user {user_id}: {e}")
             return None
@@ -161,9 +153,25 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting user {provider}:{oauth_id}: {e}")
             return None
+        
+
+     
+    def get_user_by_email(self, email: str) -> Optional[PydanticUser]:
+        try:
+            with self.get_session() as session:
+                db_user = session.query(SQLUser).filter_by(
+                    email=email,
+                    is_active=True
+                ).first()
+                
+                return self._sqlalchemy_user_to_pydantic(db_user) if db_user else None
+                
+        except Exception as e:
+            logger.error(f"Error getting user by email {email}: {e}")
+            return None
+        
 
     def update_last_login(self, user_id: int) -> bool:
-        """Update last login timestamp."""
         try:
             with self.get_session() as session:
                 session.query(SQLUser).filter_by(id=user_id).update(
@@ -213,7 +221,6 @@ class DatabaseManager:
         is_pinned: Optional[bool] = None,
         is_incognito: Optional[bool] = None,
     ) -> Optional[PydanticChatSession]:
-        """Update chat session."""
         try:
             with self.get_session() as session:
                 chat = session.query(SQLChatSession).filter_by(id=chat_id).first()
@@ -240,12 +247,11 @@ class DatabaseManager:
             return None
 
     def delete_chat_session(self, chat_id: int) -> bool:
-        """Delete chat session and all messages."""
         try:
             with self.get_session() as session:
                 chat = session.query(SQLChatSession).filter_by(id=chat_id).first()
                 if chat:
-                    session.delete(chat)  # CASCADE will delete messages
+                    session.delete(chat)  
                     return True
                 return False
                 
@@ -274,7 +280,6 @@ class DatabaseManager:
                 session.flush()
                 session.refresh(db_message)
                 
-                # Update chat's updated_at
                 session.query(SQLChatSession).filter_by(id=chat_id).update(
                     {"updated_at": datetime.utcnow()}
                 )
@@ -292,15 +297,15 @@ class DatabaseManager:
         limit: int = 20,
         offset: int = 0
     ) -> List[PydanticChatSession]:
-        """Get user's chat sessions."""
         try:
             with self.get_session() as session:
                 query = session.query(SQLChatSession).filter_by(user_id=user_id)
                 
                 if not include_archived:
                     query = query.filter_by(is_archived=False)
+
+                query = query.options(joinedload(SQLChatSession.messages))
                 
-                # Pinned first, then by updated_at
                 db_sessions = (
                     query.order_by(
                         SQLChatSession.is_pinned.desc(),
@@ -311,7 +316,7 @@ class DatabaseManager:
                     .all()
                 )
                 
-                return [self._sqlalchemy_session_to_pydantic(s, session) for s in db_sessions]
+                return [self._sqlalchemy_session_to_pydantic_with_loaded_messages(s) for s in db_sessions]
                 
         except Exception as e:
             logger.error(f"Error getting sessions: {e}")
@@ -323,7 +328,6 @@ class DatabaseManager:
         limit: Optional[int] = None,
         offset: int = 0
     ) -> List[PydanticMessage]:
-        """Get chat messages."""
         try:
             with self.get_session() as session:
                 query = (
@@ -351,37 +355,45 @@ class DatabaseManager:
         include_archived: bool = False,
         limit: int = 50
     ) -> List[Dict[str, Any]]:
-        """Search in user's chats."""
+
         try:
             with self.get_session() as session:
-                # Search in titles
-                chats_query = session.query(SQLChatSession).filter(
+                search_pattern = f"%{query}%"
+                
+                results = []
+                seen_chat_ids = set()
+                
+                # 1. Поиск в заголовках чатов
+                title_query = session.query(SQLChatSession).filter(
                     SQLChatSession.user_id == user_id,
-                    SQLChatSession.title.contains(query)
+                    SQLChatSession.is_incognito == False,  
+                    SQLChatSession.title.ilike(search_pattern)  
                 )
                 
                 if not include_archived:
-                    chats_query = chats_query.filter_by(is_archived=False)
+                    title_query = title_query.filter(SQLChatSession.is_archived == False)
                 
-                results = []
+                title_query = title_query.order_by(SQLChatSession.updated_at.desc())
                 
-                # Add matching chats
-                for chat in chats_query.limit(limit).all():
+                for chat in title_query.limit(limit).all():
                     results.append({
                         "id": chat.id,
                         "title": chat.title,
-                        "updated_at": chat.updated_at,
-                        "match_type": "title"
+                        "updated_at": chat.updated_at.isoformat() if chat.updated_at else None,
+                        "match_type": "title",
+                        "is_incognito": False
                     })
+                    seen_chat_ids.add(chat.id)
                 
-                # Search in messages if we need more results
-                if len(results) < limit:
+                remaining_limit = limit - len(results)
+                if remaining_limit > 0:
                     messages_query = (
                         session.query(SQLChatMessage)
-                        .join(SQLChatSession)
+                        .join(SQLChatSession, SQLChatMessage.chat_id == SQLChatSession.id)
                         .filter(
                             SQLChatSession.user_id == user_id,
-                            SQLChatMessage.content.contains(query)
+                            SQLChatSession.is_incognito == False,   
+                            SQLChatMessage.content.ilike(search_pattern)   
                         )
                     )
                     
@@ -389,19 +401,30 @@ class DatabaseManager:
                         messages_query = messages_query.filter(
                             SQLChatSession.is_archived == False
                         )
-                    messages_query = messages_query.order_by(SQLChatMessage.created_at.desc())
-                    seen_chats = {r["id"] for r in results}
                     
-                    for msg in messages_query.limit(limit - len(results)).all():
-                        if msg.chat_id not in seen_chats:
-                            results.append({
-                                "id": msg.chat.id,
-                                "title": msg.chat.title,
-                                "updated_at": msg.chat.updated_at,
-                                "match_type": "message",
-                                "matched_content": msg.content[:100]
-                            })
-                            seen_chats.add(msg.chat_id)
+                    messages_query = messages_query.order_by(
+                        SQLChatMessage.created_at.desc()
+                    )
+                    
+                    for msg in messages_query.limit(remaining_limit * 2).all(): 
+                        if msg.chat_id not in seen_chat_ids:
+                            chat = session.query(SQLChatSession).filter_by(
+                                id=msg.chat_id
+                            ).first()
+                            
+                            if chat:
+                                results.append({
+                                    "id": chat.id,
+                                    "title": chat.title,
+                                    "updated_at": chat.updated_at.isoformat() if chat.updated_at else None,
+                                    "match_type": "message",
+                                    "matched_content": msg.content[:100] + ("..." if len(msg.content) > 100 else ""),
+                                    "is_incognito": False
+                                })
+                                seen_chat_ids.add(msg.chat_id)
+                            
+                            if len(results) >= limit:
+                                break
                 
                 return results[:limit]
                 
@@ -419,7 +442,6 @@ class DatabaseManager:
         assistant_response: str,
         data_source: Optional[str] = None,
     ) -> None:
-        """Legacy: Add to chat_logs table."""
         try:
             with self.get_session() as session:
                 log_entry = SQLChatLog(
@@ -433,7 +455,6 @@ class DatabaseManager:
             logger.error(f"Error logging chat: {e}")
 
     def get_database_stats(self) -> Dict[str, int]:
-        """Get database statistics."""
         try:
             with self.get_session() as session:
                 stats = {
@@ -456,13 +477,10 @@ class DatabaseManager:
         """Convert SQLAlchemy User to Pydantic."""
         return sqlalchemy_to_pydantic(db_user)
 
-    def _sqlalchemy_session_to_pydantic(self, db_session: SQLChatSession, session: Session = None) -> PydanticChatSession:
-        """Convert SQLAlchemy ChatSession to Pydantic."""
-    
+    def _sqlalchemy_session_to_pydantic(self, db_session: SQLChatSession, session: Session = None) -> PydanticChatSession:  
         message_count = 0
         last_message = None
         
-        # Если передана сессия, подсчитываем сообщения
         if session:
             try:
                 message_count = session.query(SQLChatMessage).filter_by(
@@ -502,7 +520,6 @@ class DatabaseManager:
         )
     
     def _sqlalchemy_message_to_pydantic(self, db_message: SQLChatMessage) -> PydanticMessage:
-        """Convert SQLAlchemy ChatMessage to Pydantic."""
         metadata = None
         if db_message.message_metadata:
             try:
@@ -519,8 +536,35 @@ class DatabaseManager:
             created_at=db_message.created_at
         )
     
+
+    def _sqlalchemy_session_to_pydantic_with_loaded_messages(
+        self, 
+        db_session: SQLChatSession
+    ) -> PydanticChatSession:
+        messages = db_session.messages if db_session.messages else []
+        message_count = len(messages)
+        
+        last_message = None
+        if messages:
+            last_msg = max(messages, key=lambda m: m.created_at)
+            last_message = last_msg.content[:100]
+            if len(last_msg.content) > 100:
+                last_message += "..."
+        
+        return PydanticChatSession(
+            id=db_session.id,
+            user_id=db_session.user_id,
+            title=db_session.title,
+            created_at=db_session.created_at,
+            updated_at=db_session.updated_at,
+            is_archived=db_session.is_archived,
+            is_pinned=db_session.is_pinned,
+            is_incognito=db_session.is_incognito,
+            message_count=message_count,
+            last_message=last_message
+        )
+    
     def chat_belongs_to_user(self, chat_id: int, user_id: int) -> bool:
-        """Check if chat belongs to user (efficient - single query)."""
         try:
             with self.get_session() as session:
                 exists = session.query(SQLChatSession).filter_by(
@@ -533,7 +577,6 @@ class DatabaseManager:
             return False
     
     def get_user_statistics(self, user_id: int) -> Dict[str, Any]:
-        """Get user statistics with single aggregated query."""
         try:
             with self.get_session() as session:
                 stats = session.query(
@@ -580,29 +623,29 @@ class DatabaseManager:
                                chat_id: int, 
                                user_id: Optional[int] = None
                                ) -> Optional[PydanticChatSession]:
-        """
-        Get single chat session by ID with optional ownership check.
-        """
+
         try:
             with self.get_session() as session:
                 query = session.query(SQLChatSession).filter_by(id=chat_id)
                 
                 if user_id is not None:
                     query = query.filter_by(user_id=user_id)
+
+                query = query.options(joinedload(SQLChatSession.messages))    
                 
                 db_session = query.first()
                 
                 if not db_session:
                     return None
                 
-                return self._sqlalchemy_session_to_pydantic(db_session, session)
+                return self._sqlalchemy_session_to_pydantic_with_loaded_messages(db_session)
                 
         except Exception as e:
             logger.error(f"Error getting chat session {chat_id}: {e}")
             return None        
 
 
-# Global instance
+
 db_manager = DatabaseManager()
 
 def init_db():

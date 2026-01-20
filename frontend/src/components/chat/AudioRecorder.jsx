@@ -91,11 +91,11 @@ const AudioRecorder = ({
 
       // Send to backend
       const transcriptionResponse = await fetch(
-        "http://localhost:8001/api/v1/speech/transcribe",
+        "http://localhost:8000/api/v1/speech/transcribe",
         {
           method: "POST",
           body: formData,
-        }
+        },
       );
 
       if (!transcriptionResponse.ok) {

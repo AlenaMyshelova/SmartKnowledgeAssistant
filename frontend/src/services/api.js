@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8001/api/v1";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
 
 const api = axios.create({
   baseURL: API_URL,
@@ -20,14 +20,14 @@ api.interceptors.request.use(
       "API Request:",
       config.method.toUpperCase(),
       config.url,
-      config.data
+      config.data,
     );
     return config;
   },
   (error) => {
     console.error("API Request Error:", error);
     return Promise.reject(error);
-  }
+  },
 );
 
 // Response interceptor
@@ -43,7 +43,7 @@ api.interceptors.response.use(
       window.location.href = "/login";
     }
     return Promise.reject(error);
-  }
+  },
 );
 
 // Auth API
@@ -62,10 +62,9 @@ export const authApi = {
   },
 };
 
-// Chat API - ПРАВИЛЬНЫЕ ENDPOINTS из вашего backend
 export const chatApi = {
   // Messages
-  sendMessage: (data) => api.post("/chat/send", data), // ✅ Правильный endpoint
+  sendMessage: (data) => api.post("/chat/send", data),
 
   // Sessions
   getSessions: (params) => api.get("/chat/sessions", { params }),
@@ -74,13 +73,10 @@ export const chatApi = {
   updateSession: (id, data) => api.patch(`/chat/sessions/${id}`, data),
   deleteSession: (id) => api.delete(`/chat/sessions/${id}`),
 
-  // Search
-  searchChats: (data) => api.post("/chat/search", data),
+  searchChats: (params) => api.get("/chat/sessions/search", { params }),
 
-  // Mode
   getChatModeStatus: () => api.get("/chat/mode/status"),
 
-  // Incognito
   clearIncognito: () => api.delete("/chat/incognito/clear"),
 };
 

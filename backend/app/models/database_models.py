@@ -1,7 +1,3 @@
-"""
-SQLAlchemy database models for Alembic migrations and ORM operations.
-These models represent the actual database schema.
-"""
 from sqlalchemy import (
     Column, Integer, String, Text, Boolean, 
     DateTime, ForeignKey, UniqueConstraint, Index
@@ -22,15 +18,13 @@ class User(Base):
     avatar_url = Column(Text, nullable=True)
     oauth_provider = Column(String(50), nullable=False)
     oauth_id = Column(String(255), nullable=False)
-    provider_data = Column(Text, nullable=True)  # JSON string
+    provider_data = Column(Text, nullable=True)  
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
     
-    # Relationships
     chat_sessions = relationship("ChatSession", back_populates="user", cascade="all, delete-orphan")
     
-    # Constraints and indexes
     __table_args__ = (
         UniqueConstraint('oauth_provider', 'oauth_id', name='uq_provider_oauth_id'),
         Index('ix_users_email', 'email'),
@@ -50,14 +44,14 @@ class ChatSession(Base):
     is_pinned = Column(Boolean, default=False)
     is_incognito = Column(Boolean, default=False)
     
-    # Relationships
     user = relationship("User", back_populates="chat_sessions")
     messages = relationship("ChatMessage", back_populates="chat", cascade="all, delete-orphan")
     
-    # Indexes
+
     __table_args__ = (
         Index('ix_chat_sessions_user_updated', 'user_id', 'updated_at'),
         Index('ix_chat_sessions_user_archived', 'user_id', 'is_archived'),
+        Index('ix_chat_sessions_user_pinned', 'user_id', 'is_pinned'),
     )
 
 class ChatMessage(Base):
@@ -71,13 +65,12 @@ class ChatMessage(Base):
     message_metadata = Column(Text, nullable=True)  # JSON string
     created_at = Column(DateTime, default=datetime.utcnow)
     
-    # Relationships
     chat = relationship("ChatSession", back_populates="messages")
     
-    # Indexes
     __table_args__ = (
         Index('ix_chat_messages_chat_id', 'chat_id'),
         Index('ix_chat_messages_chat_created', 'chat_id', 'created_at'),
+        Index('ix_chat_messages_role', 'role'),
     )
 
 class ChatLog(Base):

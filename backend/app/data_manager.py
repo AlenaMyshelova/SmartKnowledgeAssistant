@@ -228,8 +228,7 @@ class DataManager:
 
     def get_all_data_sources(self) -> Dict[str, Any]:
         """
-        Метаданные по всем загруженным источникам: 
-        число записей, список колонок и наличие векторного индекса.
+        Метаданные по всем загруженным источникам
         """
         info: Dict[str, Any] = {}
         
@@ -284,9 +283,7 @@ class DataManager:
         cats = df["Category"].dropna().astype(str).unique().tolist()
         return cats
 
-    # -------------------
-    # Дополнительно
-    # -------------------
+
     def reload(self) -> None:
         """Перезагрузить данные из CSV и обновить векторные индексы."""
         self.load_company_faqs()

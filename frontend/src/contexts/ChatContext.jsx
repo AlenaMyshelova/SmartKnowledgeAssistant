@@ -52,7 +52,7 @@ export const ChatProvider = ({ children }) => {
       throw new Error("No authentication token");
     }
 
-    const response = await fetch(`http://localhost:8001/api/v1${endpoint}`, {
+    const response = await fetch(`http://localhost:8000/api/v1${endpoint}`, {
       ...options,
       headers: {
         Authorization: `Bearer ${token}`,
@@ -88,13 +88,7 @@ export const ChatProvider = ({ children }) => {
 
         console.log("Loaded chats data:", data);
 
-        // Дополнительная фильтрация на frontend
-        const regularChats = (data.chats || []).filter((chat) => {
-          // Исключаем incognito чаты:
-          return (
-            chat.id > 0 && !chat.is_incognito && chat.title !== "Incognito Chat"
-          );
-        });
+        const regularChats = (data.chats || []).filter((chat) => chat.id > 0);
 
         if (append) {
           setChats((prev) => [...prev, ...regularChats]);
@@ -112,7 +106,7 @@ export const ChatProvider = ({ children }) => {
         setLoading(false);
       }
     },
-    [token, user] // НЕ включаем isIncognito в зависимости
+    [token, user],
   );
 
   // Load more chats for infinite scroll
@@ -164,7 +158,7 @@ export const ChatProvider = ({ children }) => {
         throw err;
       }
     },
-    [token, isIncognito]
+    [token, isIncognito],
   );
 
   // Load chat history
@@ -184,7 +178,7 @@ export const ChatProvider = ({ children }) => {
         setLoading(false);
       }
     },
-    [token]
+    [token],
   );
 
   // Send message
@@ -329,8 +323,8 @@ export const ChatProvider = ({ children }) => {
                     updated_at: new Date().toISOString(),
                     message_count: (chat.message_count || 0) + 2,
                   }
-                : chat
-            )
+                : chat,
+            ),
           );
         }
 
@@ -356,7 +350,7 @@ export const ChatProvider = ({ children }) => {
         throw err;
       }
     },
-    [currentChat, isIncognito, loadChats, navigate]
+    [currentChat, isIncognito, loadChats, navigate],
   );
 
   // Toggle incognito mode
@@ -425,7 +419,7 @@ export const ChatProvider = ({ children }) => {
                 setChats((prev) => {
                   if (!prev.find((c) => c.id === chatId)) {
                     return [...prev, chatToDelete].sort(
-                      (a, b) => new Date(b.updated_at) - new Date(a.updated_at)
+                      (a, b) => new Date(b.updated_at) - new Date(a.updated_at),
                     );
                   }
                   return prev;
@@ -450,7 +444,7 @@ export const ChatProvider = ({ children }) => {
 
       return chatToDelete;
     },
-    [chats, currentChat, token]
+    [chats, currentChat, token],
   );
 
   // Undo delete - ИСПРАВЛЕННАЯ ВЕРСИЯ
@@ -475,14 +469,14 @@ export const ChatProvider = ({ children }) => {
           return prev;
         }
         return [...prev, chatToRestore].sort(
-          (a, b) => new Date(b.updated_at) - new Date(a.updated_at)
+          (a, b) => new Date(b.updated_at) - new Date(a.updated_at),
         );
       });
 
       // Удаляем из списка удаленных
       setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
     },
-    [deletedChats, deleteTimers]
+    [deletedChats, deleteTimers],
   );
 
   // Очистка таймеров при размонтировании
@@ -497,8 +491,8 @@ export const ChatProvider = ({ children }) => {
     async (chatId, updates) => {
       setChats((prev) =>
         prev.map((chat) =>
-          chat.id === chatId ? { ...chat, ...updates } : chat
-        )
+          chat.id === chatId ? { ...chat, ...updates } : chat,
+        ),
       );
 
       try {
@@ -512,11 +506,11 @@ export const ChatProvider = ({ children }) => {
         setError(err.message);
       }
     },
-    [token, page, loadChats]
+    [token, page, loadChats],
   );
 
   const searchChats = useCallback(
-    async (query, useFilters = false) => {
+    async (query) => {
       if (!query.trim()) {
         setSearchResults([]);
         setIsSearching(false);
@@ -525,46 +519,52 @@ export const ChatProvider = ({ children }) => {
 
       try {
         setIsSearching(true);
-        let data;
+        console.log("🔍 Searching for:", query, "with filters:", filters);
 
-        if (useFilters && Object.keys(filters).some((v) => filters[v])) {
-          // POST с фильтрами (если они есть)
-          data = await apiCall("/chat/search", {
-            method: "POST",
-            body: JSON.stringify({
-              query,
-              include_archived: false,
-              filters,
-              limit: 50,
-            }),
-          });
-        } else {
-          // GET для простого поиска
-          const params = new URLSearchParams({
-            query: query,
-            include_archived: "false",
-            limit: "50",
-          });
+        const response = await chatApi.searchChats({
+          query: query.trim(),
+          include_archived: false,
+          limit: 50,
+        });
 
-          data = await apiCall(`/chat/sessions/search?${params}`);
+        let results = response.data.results || [];
+
+        results = results.filter((r) => r && r.id > 0);
+
+        if (filters.dateRange) {
+          const now = new Date();
+          let filterDate = new Date();
+
+          if (filters.dateRange === "today") {
+            filterDate.setHours(0, 0, 0, 0);
+          } else if (filters.dateRange === "week") {
+            filterDate.setDate(now.getDate() - 7);
+          } else if (filters.dateRange === "month") {
+            filterDate.setMonth(now.getMonth() - 1);
+          }
+
+          results = results.filter((chat) => {
+            const chatDate = new Date(chat.updated_at);
+            return chatDate >= filterDate;
+          });
         }
 
-        // Обрабатываем результаты независимо от метода
-        const results = data.results || data || [];
-        const regularResults = results.filter(
-          (r) =>
-            r && r.id > 0 && !r.is_incognito && r.title !== "Incognito Chat"
-        );
+        if (filters.dataSource) {
+          results = results.filter(
+            (chat) => chat.data_source === filters.dataSource,
+          );
+        }
 
-        setSearchResults(regularResults);
+        console.log("📊 Filtered results:", results.length, "items");
+        setSearchResults(results);
       } catch (err) {
-        console.error("Error searching chats:", err);
+        console.error(" Error searching chats:", err);
         setSearchResults([]);
       } finally {
         setIsSearching(false);
       }
     },
-    [token, filters]
+    [filters],
   );
 
   const clearIncognitoChats = useCallback(async () => {
@@ -598,7 +598,7 @@ export const ChatProvider = ({ children }) => {
       setSavedFilters(updated);
       localStorage.setItem("savedFilters", JSON.stringify(updated));
     },
-    [savedFilters]
+    [savedFilters],
   );
 
   const deleteSavedFilter = useCallback(
@@ -607,7 +607,7 @@ export const ChatProvider = ({ children }) => {
       setSavedFilters(updated);
       localStorage.setItem("savedFilters", JSON.stringify(updated));
     },
-    [savedFilters]
+    [savedFilters],
   );
 
   const applySavedFilter = useCallback((filter) => {
