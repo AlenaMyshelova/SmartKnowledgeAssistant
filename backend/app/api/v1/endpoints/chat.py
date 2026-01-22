@@ -1,7 +1,7 @@
-from typing import Optional
+from typing import Optional, Annotated
 import logging
 import time
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.services.chat_service import chat_service
 from app.schemas.chat import (
@@ -14,28 +14,43 @@ from app.schemas.chat import (
     SearchChatsRequest,
     ChatSession,
     ChatMessage,
+    CreateSessionResponse,
+    SearchChatsResponse,
+    MessageResponse,
+    ClearIncognitoResponse,
+    SwitchModeResponse,
 )
 from app.schemas.user import User
 from app.dependencies import get_current_user
 
 
-router = APIRouter(tags=["chat"])
+router = APIRouter(
+    tags=["chat"],
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Not authenticated"},
+        status.HTTP_404_NOT_FOUND: {"description": "Chat not found"},
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Internal server error"},
+    },
+)
 logger = logging.getLogger(__name__)
+
+CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
 # ===========================
 # Message
 # ===========================
+
 @router.post("/send", response_model=ChatResponse)
 async def send_message(
     request: ChatRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     """
-    Отправка сообщения:
-    - если chat_id отсутствует → создаём чат (incognito или обычный) в ChatService
-    - сохраняем user/assistant сообщения (incognito — в памяти)
-    - возвращаем ответ + источники
+    Send message:
+    - if chat_id is missing → create a chat (incognito or regular) in ChatService
+    - save user/assistant messages (incognito — in memory)
+    - return response + sources
     """
     try:
         start = time.time()
@@ -47,12 +62,12 @@ async def send_message(
                 is_incognito=bool(request.is_incognito),
             )
             if not session:
-                raise HTTPException(status_code=500, detail="Failed to create chat")
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create chat session")
             chat_id = session.id
 
         owns = await chat_service.verify_chat_owner(chat_id, current_user.id)
         if not owns:
-            raise HTTPException(status_code=404, detail="Chat not found or access denied")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Chat {chat_id} not found")
         result = await chat_service.get_response_with_sources(
             chat_id=chat_id,
             user_message=request.message,
@@ -74,17 +89,17 @@ async def send_message(
         raise
     except Exception as e:
         logger.exception("Error in /chat/send")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 # ===========================
 # Sessions
 # ===========================
 
-@router.post("/sessions", response_model=dict)
+@router.post("/sessions", response_model=CreateSessionResponse)
 async def create_chat_session(
+    current_user: CurrentUser,
     request: ChatSessionCreate | None = None,
-    current_user: User = Depends(get_current_user),
 ):
     try:
         request = request or ChatSessionCreate()
@@ -94,7 +109,7 @@ async def create_chat_session(
             is_incognito=bool(request.is_incognito),
         )
         if not session:
-            raise HTTPException(status_code=500, detail="Failed to create chat")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create chat session")
 
         if request.first_message:
             await chat_service.get_response_with_sources(
@@ -103,20 +118,23 @@ async def create_chat_session(
                 data_source="company_faqs",
             )
 
-        return {"chat_id": session.id, "is_incognito": session.is_incognito, "title": session.title}
+        return CreateSessionResponse(chat_id=session.id, is_incognito=session.is_incognito, title=session.title)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Error creating chat session")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     
 @router.get("/sessions/search")
 async def search_chats(
+    current_user: CurrentUser,
     query: str = Query(..., min_length=1, max_length=200),
     include_archived: bool = Query(False),
     limit: int = Query(50, ge=1, le=200),
-    current_user: User = Depends(get_current_user),
 ):
+    """Search user's chats by query in titles and messages."""
     try:
-        results= await chat_service.search_user_chats(
+        results = await chat_service.search_user_chats(
             user_id=current_user.id,
             query=query,
             include_archived=include_archived,
@@ -125,11 +143,11 @@ async def search_chats(
         return {"results": results, "total": len(results)}
     except Exception as e:
         logger.exception("Error searching chats")
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) 
       
 @router.get("/sessions", response_model=ChatListResponse)
 async def get_chat_sessions(
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
     include_archived: bool = Query(False),
     include_incognito: bool = Query(False),
     page: int = Query(1, ge=1),
@@ -153,25 +171,25 @@ async def get_chat_sessions(
         )
     except Exception as e:
         logger.exception("Error fetching chat sessions")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     
 
 @router.get("/sessions/{chat_id}", response_model=ChatHistoryResponse)
 async def get_chat_history(
     chat_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
     limit: Optional[int] = Query(None, ge=1, le=1000),
     offset: int = Query(0, ge=0),
 ):
     try:
         owns = await chat_service.verify_chat_owner(chat_id, current_user.id)
         if not owns:
-            raise HTTPException(status_code=404, detail="Chat not found or access denied")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Chat {chat_id} not found")
         
         messages = await chat_service.get_chat_messages(chat_id, limit=limit, offset=offset)
         chat_meta = await chat_service.get_chat_session(chat_id, current_user.id)
         if not chat_meta:
-            raise HTTPException(status_code=404, detail="Chat not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Chat {chat_id} not found")
 
         return ChatHistoryResponse(
             chat=chat_meta,
@@ -183,22 +201,22 @@ async def get_chat_history(
         raise
     except Exception as e:
         logger.exception("Error fetching chat history")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
-@router.patch("/sessions/{chat_id}")
+@router.patch("/sessions/{chat_id}", response_model=MessageResponse)
 async def update_chat_session(
     chat_id: int,
     request: UpdateChatRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     try:
         if chat_id < 0:
-            raise HTTPException(status_code=400, detail="Cannot update incognito chat")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot update incognito chat")
 
         owns = await chat_service.verify_chat_owner(chat_id, current_user.id)
         if not owns:
-            raise HTTPException(status_code=404, detail="Chat not found or access denied")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Chat {chat_id} not found")
 
         updated = await chat_service.update_chat(
             chat_id=chat_id,
@@ -207,49 +225,53 @@ async def update_chat_session(
             is_pinned=request.is_pinned,
         )
         if not updated:
-            raise HTTPException(status_code=500, detail="Failed to update chat")
-        return {"message": "Chat updated successfully", "chat_id": chat_id}
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update chat")
+        return MessageResponse(message="Chat updated successfully", chat_id=chat_id)
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Error updating chat session")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
-@router.delete("/sessions/{chat_id}")
+@router.delete("/sessions/{chat_id}", response_model=MessageResponse)
 async def delete_chat_session(
     chat_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: CurrentUser,
 ):
     try:
         owns = await chat_service.verify_chat_owner(chat_id, current_user.id)
         if not owns:
-            raise HTTPException(status_code=404, detail="Chat not found or access denied")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Chat {chat_id} not found")
 
-        ok = await chat_service.delete_chat(chat_id)
-        if not ok:
-            raise HTTPException(status_code=500, detail="Failed to delete chat")
-        return {"message": "Chat deleted successfully"}
+        delete_chat = await chat_service.delete_chat(chat_id)
+        if not delete_chat:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete chat")
+        return MessageResponse(message="Chat deleted successfully",chat_id=chat_id)
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Error deleting chat session")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 
 # ===========================
 # Incognito management
 # ===========================
-@router.delete("/incognito/clear")
+@router.delete("/incognito/clear", response_model=ClearIncognitoResponse)
 async def clear_incognito(
-    user: User = Depends(get_current_user),
+    user: CurrentUser,
 ):
     cleared = chat_service.clear_incognito_chats(user.id)
-    return {"status": "ok", "cleared": cleared}
+    return ClearIncognitoResponse(status="ok", cleared=cleared)
 
 
-@router.post("/mode")
-async def switch_mode(payload: dict, user: User = Depends(get_current_user)):
+@router.post("/mode", response_model=SwitchModeResponse)
+async def switch_mode(
+    payload: dict,
+    user: CurrentUser,
+):
     to_incognito = bool(payload.get("to_incognito"))
-    return await chat_service.switch_user_mode(user.id, to_incognito)
+    result = await chat_service.switch_user_mode(user.id, to_incognito)
+    return SwitchModeResponse(**result)

@@ -7,14 +7,21 @@ Import dependencies from here in your endpoints.
 from fastapi import Depends, HTTPException, status, Cookie
 from fastapi.security import OAuth2PasswordBearer, HTTPBearer, HTTPAuthorizationCredentials
 from starlette.requests import Request
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Annotated
 import logging
 
 from app.core.security import decode_access_token
+from app.core.config import Settings, get_settings
 from app.schemas.user import User
 from app.services.auth_service import auth_service
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# Type Aliases для Annotated Dependencies (FastAPI Best Practice)
+# =============================================================================
+
+SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 # =============================================================================
 # Auth Schemes

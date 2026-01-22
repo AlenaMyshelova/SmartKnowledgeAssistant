@@ -1,9 +1,9 @@
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, Annotated
 from datetime import timedelta, datetime
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, Query, status
 from fastapi.responses import RedirectResponse
 from app.services.auth_service import auth_service 
 from app.core.config import settings
@@ -16,14 +16,19 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["auth"]) 
+router = APIRouter(
+    tags=["auth"],
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Not authenticated"},
+    },
+)
 
-# Temporary cookie parameters for OAuth (state/redirect_uri)
+CurrentUser = Annotated[User, Depends(get_current_user)]
+
 OAUTH_TMP_COOKIE_MAX_AGE = 300  # 5 minutes
 
 
 def _set_tmp_cookie(response: Response, key: str, value: str) -> None:
-    """Sets a temporary httpOnly cookie for OAuth intermediate steps."""
     response.set_cookie(
         key=key,
         value=value,
@@ -38,7 +43,6 @@ def _set_tmp_cookie(response: Response, key: str, value: str) -> None:
 
 
 def _del_tmp_cookie(response: Response, key: str) -> None:
-    """Deletes a temporary httpOnly cookie."""
     response.delete_cookie(
         key=key,
         httponly=True,
@@ -46,7 +50,7 @@ def _del_tmp_cookie(response: Response, key: str) -> None:
         samesite="lax",
     )
 @router.get("/test")
-def auth_test(current_user: User = Depends(get_current_user)):
+def auth_test(current_user: CurrentUser):
     return {
         "authenticated": True,
         "user": {
@@ -120,7 +124,7 @@ async def oauth_callback(
     
     try:
         if provider not in settings.OAUTH_PROVIDERS:
-            raise HTTPException(status_code=400, detail="Провайдер не поддерживается")
+            raise HTTPException(status_code=400, detail=" Unknown OAuth provider")
 
         cookie_state = request.cookies.get("oauth_state")
         logger.info(f"[OAUTH CALLBACK] Cookie state: {cookie_state[:10] + '...' if cookie_state else 'None'}")
@@ -130,7 +134,7 @@ async def oauth_callback(
             logger.error(f"[OAUTH CALLBACK ERROR] State mismatch!")
             logger.error(f"[OAUTH CALLBACK ERROR] Expected: {cookie_state}")
             logger.error(f"[OAUTH CALLBACK ERROR] Received: {state}")
-            raise HTTPException(status_code=400, detail="Недействительный параметр state")
+            raise HTTPException(status_code=400, detail="Invalid state parameter")
 
         frontend_redirect = request.cookies.get("oauth_redirect") or f"{settings.FRONTEND_URL}/auth/callback"
 
@@ -142,7 +146,6 @@ async def oauth_callback(
         logger.info(f"[OAUTH CALLBACK] Code: {code[:20]}...")
         logger.info(f"[OAUTH CALLBACK] Provider redirect URI: {provider_redirect_uri}")
        
-        # Exchange code for access token
         access_token = await oauth_provider.exchange_code_for_token(
             code,
             redirect_uri=provider_redirect_uri,
@@ -154,7 +157,7 @@ async def oauth_callback(
         name = user_info.get("name")
 
         if not provider_id or not email:
-            raise HTTPException(status_code=400, detail="Некорректные данные пользователя от провайдера")
+            raise HTTPException(status_code=400, detail="Invalid user data from provider")
 
         user = await auth_service.get_or_create_oauth_user(
         provider=provider,
@@ -167,7 +170,7 @@ async def oauth_callback(
         if not user:
             raise HTTPException(status_code=500, detail="Error creating or retrieving user")  
 
-        # Генерируем наш access JWT (короткоживущий)
+        # Generate access JWT (short-lived)
         payload = {"sub": str(user.id), "email": user.email, "name": user.name}
         jwt_token = create_access_token(
             data=payload,
@@ -177,7 +180,7 @@ async def oauth_callback(
         logger.info(f"[AUTH] User {user.email} authenticated successfully")
         logger.info(f"[AUTH] Redirecting to: {frontend_redirect}")
         
-        # Редиректим на фронт + ставим JWT в httpOnly cookie
+        # Redirect to frontend with JWT in httpOnly cookie
         redirect_url = f"{frontend_redirect}?token={jwt_token}"
         resp = RedirectResponse(redirect_url)
         resp.set_cookie(
@@ -189,7 +192,6 @@ async def oauth_callback(
             max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         )
 
-        # Clean up temporary cookies
         _del_tmp_cookie(resp, "oauth_state")
         _del_tmp_cookie(resp, "oauth_redirect")
 
@@ -208,9 +210,9 @@ async def oauth_callback(
 
 
 @router.get("/me")
-async def read_users_me(current_user: User = Depends(get_current_user)):
+async def read_users_me(current_user: CurrentUser):
     """
-    Возвращает данные текущего пользователя (по access JWT).
+    returns the current authenticated user.
     """
     return current_user
 
@@ -223,14 +225,14 @@ async def logout(response: Response):
         secure=not settings.DEBUG,
         samesite="lax",
     )
-    return {"message": "Вы успешно вышли из системы"}
+    return {"message": "Successfully logged out"}
 
 
 @router.post("/refresh-token")
 async def refresh_token(request: Request, response: Response):
     """
-    Обновляет access JWT (на текущем токене).
-    В продакшене рекомендуется отдельный refresh-токен (httpOnly cookie) и ротация.
+    Refreshes the access JWT (using the current token).
+    In production, a separate refresh token (httpOnly cookie) and rotation are recommended.
     """
     token: str | None = None
     auth_header = request.headers.get("Authorization")
@@ -240,15 +242,15 @@ async def refresh_token(request: Request, response: Response):
         token = request.cookies.get("access_token")
 
     if not token:
-        raise HTTPException(status_code=401, detail="Не удалось найти токен")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Failed to find token")
 
     token_data = decode_access_token(token)
     if not token_data:
-        raise HTTPException(status_code=401, detail="Токен недействителен или истек срок действия")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
 
     user = await auth_service.get_user_by_id(int(token_data.sub))
     if not user:
-        raise HTTPException(status_code=401, detail="Пользователь не найден")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     new_payload = {"sub": str(user.id), "email": user.email, "name": user.name}
     new_token = create_access_token(

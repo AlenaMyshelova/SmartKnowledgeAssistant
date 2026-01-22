@@ -1,7 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
@@ -11,18 +11,16 @@ from app.middleware.auth_middleware import AuthMiddleware
 from app.core.config import settings
 from app.api.v1.api import api_router
 from app.utils.async_utils import shutdown_executor
-from app.dependencies import get_current_user
 
 load_dotenv()
 
-logger = logging.getLogger("uvicorn.error")  # будет писать в логи uvicorn
+logger = logging.getLogger("uvicorn.error") 
 
 data_manager = DataManager()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # --- startup ---
     logger.info("Starting %s v%s", settings.PROJECT_NAME, settings.VERSION)
 
     try:
@@ -45,7 +43,6 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # --- shutdown ---
     logger.info("Shutting down executor...")
     shutdown_executor()
     logger.info("Shutdown complete")
@@ -69,6 +66,7 @@ app.add_middleware(
     expose_headers=["*"],
 )
 app.add_middleware(AuthMiddleware)
+
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
 

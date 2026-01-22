@@ -1,8 +1,9 @@
 from fastapi import APIRouter
 
-from app.core.config import settings
+from app.core.config import get_settings
 
-router = APIRouter()
+router = APIRouter(tags=["system"])
+
 
 @router.get("/health")
 def health_check():
@@ -11,6 +12,7 @@ def health_check():
     
     GET /api/v1/health
     """
+    settings = get_settings()
     return {
         "status": "ok", 
         "message": "Smart Knowledge Assistant API is running",
@@ -18,13 +20,13 @@ def health_check():
         "model": settings.OPENAI_MODEL
     }
 
+
 @router.get("/info")
 def get_api_info():
     """
     Information about the API.
-    
-    GET /api/v1/info
     """
+    settings = get_settings()
     return {
         "name": settings.PROJECT_NAME,
         "version": settings.VERSION,

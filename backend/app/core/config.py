@@ -1,6 +1,7 @@
+from re import U
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional, Dict, Any, List
-from functools import cached_property
+from functools import cached_property, lru_cache
 
 class Settings(BaseSettings):
     # Pydantic settings v2
@@ -10,7 +11,6 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # App info
     PROJECT_NAME: str = "Smart Knowledge Assistant API"
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
@@ -87,6 +87,17 @@ class Settings(BaseSettings):
             }
 
         return providers
-    
 
-settings = Settings()
+
+@lru_cache
+def get_settings() -> Settings:
+    """
+    Create and cache the Settings instance. 
+    Use of @lru_cache ensures:
+    - Settings are read from .env only once
+    - The same object is used across all requests
+    - Easy to override in tests via dependency_overrides
+    """
+    return Settings()
+
+settings = get_settings()

@@ -30,8 +30,8 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
 
 def decode_access_token(token: str) -> Optional[TokenData]:
     """
-    Декодирует JWT токен и возвращает данные пользователя.
-    Возвращает None в случае ошибки (для логики приложения).
+    Decodes JWT token and returns user data.
+    Returns None in case of error (for application logic).
     """
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
