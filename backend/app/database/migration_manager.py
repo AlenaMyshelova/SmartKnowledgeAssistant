@@ -1,7 +1,3 @@
-"""
-Migration manager for handling Alembic migrations.
-Provides programmatic access to database schema management.
-"""
 import logging
 from pathlib import Path
 from typing import Optional
@@ -25,16 +21,14 @@ class MigrationManager:
         # Setup Alembic config
         if alembic_cfg_path is None:
             # Default path relative to this file
-            base_dir = Path(__file__).resolve().parent.parent.parent  # Go up to backend/
+            base_dir = Path(__file__).resolve().parent.parent.parent  
             alembic_cfg_path = str(base_dir / "alembic.ini")
         
         self.alembic_cfg = Config(alembic_cfg_path)
         self.alembic_cfg.set_main_option("sqlalchemy.url", db_url)
     
     def is_database_up_to_date(self) -> bool:
-        """
-        Check if database schema is up to date with latest migration.
-        """
+
         try:
             script_dir = ScriptDirectory.from_config(self.alembic_cfg)
             
@@ -50,7 +44,6 @@ class MigrationManager:
             return True
     
     def get_current_revision(self) -> Optional[str]:
-        """Get current database revision."""
         try:
             with self.engine.connect() as connection:
                 context = MigrationContext.configure(connection)
@@ -69,9 +62,6 @@ class MigrationManager:
             return None
     
     def upgrade_database(self, revision: str = "head") -> bool:
-        """
-        Upgrade database to specified revision.
-        """
         try:
             command.upgrade(self.alembic_cfg, revision)
             logger.info(f"Database upgraded to revision: {revision}")
@@ -81,9 +71,6 @@ class MigrationManager:
             return False
     
     def downgrade_database(self, revision: str) -> bool:
-        """
-        Downgrade database to specified revision.
-        """
         try:
             command.downgrade(self.alembic_cfg, revision)
             logger.info(f"Database downgraded to revision: {revision}")
@@ -109,9 +96,6 @@ class MigrationManager:
             return False
     
     def get_migration_history(self) -> list:
-        """
-        Get migration history.
-        """
         try:
             script_dir = ScriptDirectory.from_config(self.alembic_cfg)
             
@@ -145,9 +129,6 @@ class MigrationManager:
 migration_manager: Optional[MigrationManager] = None
 
 def initialize_migration_manager(db_url: str) -> None:
-    """
-    Initialize global migration manager.
-    """
     global migration_manager
     try:
         migration_manager = MigrationManager(db_url)

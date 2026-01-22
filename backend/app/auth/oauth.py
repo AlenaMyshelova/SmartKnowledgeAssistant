@@ -2,26 +2,25 @@ from __future__ import annotations
 from typing import Dict, Any, Optional, List
 import logging
 from urllib.parse import urlencode
-
 import httpx
-from fastapi import HTTPException
+from fastapi import HTTPException,status
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Общий таймаут для HTTP-запросов к OAuth-провайдерам
+# Tiomeout for HTTP requests to OAuth providers
 HTTP_TIMEOUT = 15.0
 
 
 class OAuthProvider:
-    """Базовый класс для OAuth провайдеров."""
+    """Base class for OAuth providers."""
 
     def __init__(self, provider_config: Dict[str, Any]):
         self.config = provider_config
         self.client_id = provider_config.get("client_id")
         self.client_secret = provider_config.get("client_secret")
-        self.name = "generic"  # Переопределяется в подклассах
+        self.name = "generic"  # Should be overridden in subclasses
 
     def get_authorization_url(
         self,
@@ -30,8 +29,8 @@ class OAuthProvider:
         extra_params: Optional[Dict[str, str]] = None,
     ) -> str:
         """
-        Формирование URL для авторизации.
-        extra_params — для access_type=offline, prompt=consent, code_challenge и т.д.
+        Generate the authorization URL.
+        extra_params — for access_type=offline, prompt=consent, code_challenge, etc.
         """
         params = {
             "client_id": self.client_id,
@@ -43,7 +42,7 @@ class OAuthProvider:
         if extra_params:
             params.update(extra_params)
 
-        # urlencode по умолчанию кодирует пробел как '+', что приемлемо для OAuth
+        # urlencode by default encodes space as '+', which is acceptable for OAuth
         return f"{self.config['authorize_url']}?{urlencode(params)}"
 
     async def exchange_code_for_token(
@@ -86,14 +85,14 @@ class OAuthProvider:
                     print(f"[OAUTH ERROR] Token exchange failed")
                     print(f"[OAUTH ERROR] Response: {resp.text}")
                     raise HTTPException(
-                        status_code=400,
+                        status=status.HTTP_400_BAD_REQUEST,
                         detail=f"Failed to exchange code for token: {resp.text}"
                     )
                     
             except httpx.RequestError as e:
                 print(f"[OAUTH ERROR] Request failed: {e}")
                 raise HTTPException(
-                    status_code=502,
+                    status=status.HTTP_502_BAD_GATEWAY,
                     detail=f"Failed to connect to {self.name}"
                 )
 
@@ -104,7 +103,7 @@ class OAuthProvider:
         if not access_token:
             print(f"[OAUTH ERROR] No access token in response")
             raise HTTPException(
-                status_code=400,
+                status=status.HTTP_400_BAD_REQUEST,
                 detail="No access token received"
             )
         
@@ -112,12 +111,11 @@ class OAuthProvider:
         return access_token
 
     async def get_user_info(self, access_token: str) -> Dict[str, Any]:
-        """Получение информации о пользователе — реализуется в подклассах."""
         raise NotImplementedError
 
 
 class GoogleOAuth(OAuthProvider):
-    """Google OAuth провайдер."""
+    """Google OAuth provider."""
 
     def __init__(self, provider_config: Dict[str, Any]):
         super().__init__(provider_config)
@@ -130,26 +128,25 @@ class GoogleOAuth(OAuthProvider):
         extra_params: Optional[Dict[str, str]] = None,
     ) -> str:
         """
-        Формирование URL для авторизации Google с параметром выбора аккаунта.
+        Generate Google-specific authorization URL with extra parameters.
         """
-        # Добавляем параметры специфичные для Google
         google_params = {
-            "access_type": "offline",  # Для получения refresh token
-            "prompt": "select_account",  # Всегда показывать страницу выбора аккаунта
-            "include_granted_scopes": "true",  # Включить все разрешенные scope
+            "access_type": "offline",  # For obtaining refresh token
+            "prompt": "select_account",  # Always show account selection page
+            "include_granted_scopes": "true",  
         }
         
-        # Если переданы дополнительные параметры, добавляем их
         if extra_params:
             google_params.update(extra_params)
             
-        # Вызываем родительский метод с параметрами Google
+        # Call the parent method with Google parameters
         return super().get_authorization_url(redirect_uri, state, google_params)
 
     async def get_user_info(self, access_token: str) -> Dict[str, Any]:
         """
-        Получение информации о пользователе от Google.
-        Используем v3 userinfo endpoint (OIDC совместимый).
+        Get user information from Google.
+        Uses the v3 userinfo endpoint (OIDC compatible).
+
         """
         headers = {"Authorization": f"Bearer {access_token}"}
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
@@ -157,11 +154,11 @@ class GoogleOAuth(OAuthProvider):
                 resp = await client.get(self.config["userinfo_url"], headers=headers)
             except httpx.RequestError as e:
                 logger.error("Request to Google failed: %s", e)
-                raise HTTPException(status_code=502, detail="Failed to connect to Google")
+                raise HTTPException(status=status.HTTP_502_BAD_GATEWAY, detail="Failed to connect to Google")
 
         if resp.status_code != 200:
             logger.error("Failed to get user info from Google: %s %s", resp.status_code, resp.text)
-            raise HTTPException(status_code=400, detail="Failed to get user info from Google")
+            raise HTTPException(status=status.HTTP_400_BAD_REQUEST, detail="Failed to get user info from Google")
 
         user_data = resp.json()
         return {
@@ -181,37 +178,33 @@ class GitHubOAuth(OAuthProvider):
 
     async def get_user_info(self, access_token: str) -> Dict[str, Any]:
         """
-        Получение информации о пользователе от GitHub.
-        GitHub может не возвращать email в /user, поэтому дополнительно дергаем /user/emails.
+         Get user information from GitHub.
         """
         headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
 
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            # Основной профиль
             try:
                 user_resp = await client.get(self.config["userinfo_url"], headers=headers)
             except httpx.RequestError as e:
                 logger.error("Request to GitHub (userinfo) failed: %s", e)
-                raise HTTPException(status_code=502, detail="Failed to connect to GitHub")
+                raise HTTPException(status=status.HTTP_502_BAD_GATEWAY, detail="Failed to connect to GitHub")
 
             if user_resp.status_code != 200:
                 logger.error("Failed to get user info from GitHub: %s %s", user_resp.status_code, user_resp.text)
-                raise HTTPException(status_code=400, detail="Failed to get user info from GitHub")
+                raise HTTPException(status=status.HTTP_400_BAD_REQUEST, detail="Failed to get user info from GitHub")
 
             user_data = user_resp.json()
             email = user_data.get("email")
 
-            # Email может быть приватным — берём из /user/emails
             if not email:
                 try:
                     emails_resp = await client.get("https://api.github.com/user/emails", headers=headers)
                 except httpx.RequestError as e:
                     logger.error("Request to GitHub (emails) failed: %s", e)
-                    raise HTTPException(status_code=502, detail="Failed to connect to GitHub")
+                    raise HTTPException(status=status.HTTP_502_BAD_GATEWAY, detail="Failed to connect to GitHub")
 
                 if emails_resp.status_code == 200:
                     emails = emails_resp.json()
-                    # Пытаемся найти primary verified
                     primary_verified = next(
                         (e for e in emails if e.get("primary") and e.get("verified")),
                         None,
@@ -219,7 +212,7 @@ class GitHubOAuth(OAuthProvider):
                     if primary_verified:
                         email = primary_verified.get("email")
                     elif emails:
-                        # Фоллбек — первый доступный
+                        # Fallback — first available
                         email = emails[0].get("email")
 
             return {
@@ -233,10 +226,6 @@ class GitHubOAuth(OAuthProvider):
 
 
 def get_available_providers() -> List[Dict[str, str]]:
-    """
-    Возвращает список провайдеров, которые корректно сконфигурированы
-    (есть client_id и client_secret).
-    """
     providers: List[Dict[str, str]] = []
     for name, cfg in settings.OAUTH_PROVIDERS.items():
         if cfg.get("client_id") and cfg.get("client_secret"):
@@ -245,17 +234,17 @@ def get_available_providers() -> List[Dict[str, str]]:
 
 
 def get_oauth_provider(provider_name: str) -> OAuthProvider:
-    """возвращает инстанс конкретного провайдера."""
+    """returns an instance of a specific provider."""
     if provider_name not in settings.OAUTH_PROVIDERS:
-        raise HTTPException(status_code=400, detail=f"Unsupported OAuth provider: {provider_name}")
+        raise HTTPException(status=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported OAuth provider: {provider_name}")
 
     provider_config = settings.OAUTH_PROVIDERS[provider_name]
     if not provider_config.get("client_id") or not provider_config.get("client_secret"):
-        raise HTTPException(status_code=400, detail=f"Provider {provider_name} is not properly configured")
+        raise HTTPException(status=status.HTTP_400_BAD_REQUEST, detail=f"Provider {provider_name} is not properly configured")
 
     if provider_name == "google":
         return GoogleOAuth(provider_config)
     if provider_name == "github":
         return GitHubOAuth(provider_config)
 
-    raise HTTPException(status_code=400, detail=f"Provider {provider_name} not implemented")
+    raise HTTPException(status=status.HTTP_400_BAD_REQUEST, detail=f"Provider {provider_name} not implemented")

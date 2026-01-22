@@ -51,7 +51,6 @@ async def transcribe_audio(
         Transcribed text
     """
     try:
-        # Log the request
         logger.info(f"Transcription request: file={audio.filename}, size={audio.size}, type={audio.content_type}")
         
         # Validate and transcribe audio
@@ -61,7 +60,6 @@ async def transcribe_audio(
             prompt=prompt
         )
         
-        # Log success
         user_info = f"user={current_user.email}" if current_user else "anonymous"
         logger.info(f"Successfully transcribed audio for {user_info}: {len(transcribed_text)} characters")
         
@@ -79,12 +77,7 @@ async def transcribe_audio(
 
 @router.get("/languages")
 async def get_supported_languages():
-    """
-    Get list of supported languages for transcription.
     
-    Returns:
-        List of supported language codes and names
-    """
     # Whisper supports many languages, here are the most common ones
     languages = [
         {"code": "en", "name": "English"},

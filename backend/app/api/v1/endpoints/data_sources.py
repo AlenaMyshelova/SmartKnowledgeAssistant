@@ -12,7 +12,6 @@ router = APIRouter(
     },
 )
 
-
 @router.get("/data-sources")
 def get_data_sources():
     try:

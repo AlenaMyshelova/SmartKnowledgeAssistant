@@ -468,7 +468,6 @@ class DatabaseManager:
     # ---------------------------
     
     def _sqlalchemy_user_to_pydantic(self, db_user: SQLUser) -> PydanticUser:
-        """Convert SQLAlchemy User to Pydantic."""
         return sqlalchemy_to_pydantic(db_user)
 
     def _sqlalchemy_session_to_pydantic(self, db_session: SQLChatSession, session: Session = None) -> PydanticChatSession:  
@@ -481,7 +480,6 @@ class DatabaseManager:
                     chat_id=db_session.id
                 ).count()
                 
-                # Получаем последнее сообщение
                 last_msg = (
                     session.query(SQLChatMessage)
                     .filter_by(chat_id=db_session.id)

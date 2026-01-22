@@ -34,7 +34,6 @@ router = APIRouter(
 )
 logger = logging.getLogger(__name__)
 
-# Type alias для Annotated Dependency (FastAPI Best Practice)
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
@@ -48,10 +47,10 @@ async def send_message(
     current_user: CurrentUser,
 ):
     """
-    Отправка сообщения:
-    - если chat_id отсутствует → создаём чат (incognito или обычный) в ChatService
-    - сохраняем user/assistant сообщения (incognito — в памяти)
-    - возвращаем ответ + источники
+    Send message:
+    - if chat_id is missing → create a chat (incognito or regular) in ChatService
+    - save user/assistant messages (incognito — in memory)
+    - return response + sources
     """
     try:
         start = time.time()
@@ -141,7 +140,6 @@ async def search_chats(
             include_archived=include_archived,
             limit=limit,
         )
-        # Возвращаем как есть - результаты поиска с match_type
         return {"results": results, "total": len(results)}
     except Exception as e:
         logger.exception("Error searching chats")
@@ -265,7 +263,6 @@ async def delete_chat_session(
 async def clear_incognito(
     user: CurrentUser,
 ):
-    """Очистить все incognito чаты пользователя."""
     cleared = chat_service.clear_incognito_chats(user.id)
     return ClearIncognitoResponse(status="ok", cleared=cleared)
 
@@ -275,7 +272,6 @@ async def switch_mode(
     payload: dict,
     user: CurrentUser,
 ):
-    """Переключить режим чата (обычный/incognito)."""
     to_incognito = bool(payload.get("to_incognito"))
     result = await chat_service.switch_user_mode(user.id, to_incognito)
     return SwitchModeResponse(**result)

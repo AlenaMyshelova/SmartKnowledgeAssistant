@@ -25,8 +25,6 @@ def health_check():
 def get_api_info():
     """
     Information about the API.
-    
-    GET /api/v1/info
     """
     settings = get_settings()
     return {
