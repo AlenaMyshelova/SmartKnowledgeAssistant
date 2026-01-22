@@ -1,144 +1,84 @@
-from pydantic import BaseModel, Field, validator, field_validator
-from typing import Optional, List, Dict, Any
+"""
+SQLAlchemy ORM models for Chat and Messages.
+"""
+from sqlalchemy import (
+    Column, Integer, String, Text, Boolean,
+    DateTime, ForeignKey, Index
+)
+from sqlalchemy.orm import relationship
 from datetime import datetime
-from enum import Enum
 
-# Enums for validation
-class MessageRole(str, Enum):
-    """Message role enum."""
-    USER = "user"
-    ASSISTANT = "assistant"
-    SYSTEM = "system"
-
-class DataSource(str, Enum):
-    """Data source enum."""
-    COMPANY_FAQS = "company_faqs"
-    UPLOADED_FILES = "uploaded_files"
-    GENERAL_KNOWLEDGE = "general_knowledge"
-
-# Base models for chat sessions
-class ChatSessionBase(BaseModel):
-    title: Optional[str] = None
-    is_archived: bool = False
-    is_pinned: bool = False
-    
-class ChatSessionCreate(ChatSessionBase):
-    is_incognito: bool = False
-    first_message: Optional[str] = None
-
-class ChatSessionUpdate(BaseModel):
-    title: Optional[str] = None
-    is_archived: Optional[bool] = None
-    is_pinned: Optional[bool] = None
-
-class ChatSession(ChatSessionBase):
-    """Full chat session model for API responses."""
-    id: int
-    user_id: int
-    created_at: datetime
-    updated_at: datetime
-    is_incognito: bool = False
-    message_count: Optional[int] = 0
-    last_message: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
- 
-
-# Message models
-class MessageBase(BaseModel):
-    """Base model for chat messages."""
-    role: str
-    content: str
-    metadata: Optional[Dict[str, Any]] = {}
-
-class MessageCreate(MessageBase):
-    chat_id: Optional[int] = None
-
-class ChatMessage(MessageBase):
-    """Full message model for API responses."""
-    id: int
-    chat_id: int
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
-        
-
-# Request/Response models for API endpoints
-class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=4000)
-    chat_id: Optional[int] = None
-    data_source: str = DataSource.COMPANY_FAQS
-    is_incognito: bool = False
-    context_messages: Optional[int] = Field(10, ge=1, le=50)   
-    temperature: Optional[float] = Field(0.7, ge=0.0, le=2.0)   
-
-    @field_validator('message')
-    @classmethod
-    def validate_message(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError('Message cannot be empty')
-        return v.strip()
-    
-    @field_validator('data_source')
-    @classmethod
-    def validate_data_source(cls, v: str) -> str:
-        valid_sources = [e.value for e in DataSource]
-        if v not in valid_sources:
-            raise ValueError(f'Invalid data source. Must be one of: {valid_sources}')
-        return v
-class ChatResponse(BaseModel):
-    response: str
-    chat_id: int
-    message_id: Optional[int] = None
-    user_message_id: Optional[int] = None
-    is_incognito: bool = False
-    sources: Optional[List[Dict[str, Any]]] = []
-    metadata: Optional[Dict[str, Any]] = {}
-    tokens_used: Optional[int] = None
-    processing_time: Optional[float] = None
-
-class ChatListResponse(BaseModel):
-    chats: List[ChatSession]
-    total: int
-    page: int = 1
-    page_size: int = 20
-    has_more: bool = False
-
-class ChatHistoryResponse(BaseModel):
-    chat: ChatSession
-    messages: List[ChatMessage]
-    total_messages: int = 0
-    has_more: bool = False
-
-class UpdateChatRequest(BaseModel):
-
-    title: Optional[str] = None
-    is_archived: Optional[bool] = None
-    is_pinned: Optional[bool] = None
-
-class SearchChatsRequest(BaseModel):
-    query: str = Field(..., min_length=1, max_length=200)
-    include_archived: bool = False
-    limit: int = Field(50, ge=1, le=100) 
-
-    @field_validator('query')
-    @classmethod
-    def validate_query(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError('Search query cannot be empty')
-        return v.strip()
-
-class ChatModeStatus(BaseModel):
-    """Response model for current chat mode status."""
-    has_incognito_chats: bool = False
-    incognito_chat_count: int = 0
-    total_chats: int = 0
-    active_incognito_sessions: List[int] = []
+from app.models.base import Base
 
 
-CreateChatRequest = ChatSessionCreate
-Message = ChatMessage
-MessageResponse = ChatMessage
-ChatSessionResponse = ChatSession
+class ChatSession(Base):
+    """Chat session model."""
+    __tablename__ = 'chat_sessions'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    title = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_archived = Column(Boolean, default=False)
+    is_pinned = Column(Boolean, default=False)
+    is_incognito = Column(Boolean, default=False)
+
+    # Relationships
+    user = relationship("User", back_populates="chat_sessions")
+    messages = relationship(
+        "ChatMessage",
+        back_populates="chat",
+        cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index('ix_chat_sessions_user_updated', 'user_id', 'updated_at'),
+        Index('ix_chat_sessions_user_archived', 'user_id', 'is_archived'),
+        Index('ix_chat_sessions_user_pinned', 'user_id', 'is_pinned'),
+    )
+
+    def __repr__(self):
+        return f"<ChatSession(id={self.id}, user_id={self.user_id})>"
+
+
+class ChatMessage(Base):
+    """Chat message model."""
+    __tablename__ = 'chat_messages'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    chat_id = Column(Integer, ForeignKey('chat_sessions.id', ondelete='CASCADE'), nullable=False)
+    role = Column(String(50), nullable=False)  # 'user' or 'assistant'
+    content = Column(Text, nullable=False)
+    message_metadata = Column(Text, nullable=True)  # JSON string
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    chat = relationship("ChatSession", back_populates="messages")
+
+    __table_args__ = (
+        Index('ix_chat_messages_chat_id', 'chat_id'),
+        Index('ix_chat_messages_chat_created', 'chat_id', 'created_at'),
+        Index('ix_chat_messages_role', 'role'),
+    )
+
+    def __repr__(self):
+        return f"<ChatMessage(id={self.id}, chat_id={self.chat_id}, role='{self.role}')>"
+
+
+class ChatLog(Base):
+    """Legacy chat logs table for backward compatibility."""
+    __tablename__ = 'chat_logs'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_message = Column(Text, nullable=False)
+    assistant_response = Column(Text, nullable=False)
+    data_source = Column(String(100), nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index('ix_chat_logs_timestamp', 'timestamp'),
+    )
+
+    def __repr__(self):
+        return f"<ChatLog(id={self.id})>"

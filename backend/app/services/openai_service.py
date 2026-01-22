@@ -93,7 +93,10 @@ class OpenAIService:
             return assistant_response
             
         except Exception as e:
-            logger.error(f"Error generating OpenAI response: {e}")
+            logger.error(f"Error generating OpenAI response: {type(e).__name__}: {e}")
+            # Re-raise with more details for debugging
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return None
     
     def _build_system_prompt(self) -> str:

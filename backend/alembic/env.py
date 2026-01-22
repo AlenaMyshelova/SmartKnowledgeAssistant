@@ -8,7 +8,7 @@ from alembic import context
 # Add the parent directory to sys.path so we can import our models
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from app.models.database_models import Base
+from app.models import Base
 
 compare_type=True
 render_as_batch=True

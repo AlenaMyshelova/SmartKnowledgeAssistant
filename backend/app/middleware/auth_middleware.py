@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import re
 
-from app.auth.jwt import decode_access_token
+from app.core.security import decode_access_token
 from app.core.config import settings
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -23,6 +23,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
             r"^/api/v1/openapi\.json$",
             r"^/static/.*$",
             
+            r"^/favicon\.ico$",
+            r"^/robots\.txt$",
+            r"^/\.well-known/.*$",
             # Health check endpoints
             r"^/health$",
             r"^/api/v1/health$",

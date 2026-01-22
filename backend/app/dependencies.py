@@ -1,18 +1,32 @@
+"""
+Common dependencies for FastAPI endpoints.
+
+This module consolidates all reusable dependencies used across the application.
+Import dependencies from here in your endpoints.
+"""
 from fastapi import Depends, HTTPException, status, Cookie
 from fastapi.security import OAuth2PasswordBearer, HTTPBearer, HTTPAuthorizationCredentials
 from starlette.requests import Request
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any
 import logging
-from app.services.auth_service import auth_service 
-from app.auth.jwt import decode_access_token, verify_token
-from app.models.user import User, TokenData
+
+from app.core.security import decode_access_token
+from app.schemas.user import User
+from app.services.auth_service import auth_service
 
 logger = logging.getLogger(__name__)
-# Schema OAuth2 for obtaining token from Authorization header
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
 
-# Schema Bearer for alternative token retrieval
+# =============================================================================
+# Auth Schemes
+# =============================================================================
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token", auto_error=False)
 security = HTTPBearer(auto_error=False)
+
+
+# =============================================================================
+# User Dependencies
+# =============================================================================
 
 async def get_current_user_optional(
     request: Request,
@@ -24,24 +38,21 @@ async def get_current_user_optional(
     Возвращает текущего пользователя или None, если пользователь не аутентифицирован.
     Проверяет токен из нескольких источников (заголовок, cookie, query параметр).
     """
-  
     jwt_token = None
     
     # 1. Из стандартного Authorization: Bearer xxx
     if token:
         jwt_token = token
-    
     # 2. Из HTTP Bearer схемы
     elif credentials:
         jwt_token = credentials.credentials
-    
     # 3. Из cookie
     elif access_token:
         jwt_token = access_token
-    
     # 4. Из query параметра (для SSE, WebSocket и т.д.)
     else:
         jwt_token = request.query_params.get("token")
+    
     if not jwt_token:
         return None
     
@@ -65,17 +76,22 @@ async def get_current_user_optional(
         logger.error(f"Error getting user from token: {e}")
         return None
 
+
 async def get_current_user(
     current_user: Optional[User] = Depends(get_current_user_optional)
 ) -> User:
+    """
+    Возвращает текущего аутентифицированного пользователя.
+    Выбрасывает 401 если пользователь не аутентифицирован.
+    """
     if current_user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
     return current_user
+
 
 async def get_current_active_user(
     current_user: User = Depends(get_current_user)
@@ -89,8 +105,8 @@ async def get_current_active_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="The account is inactive"
         )
-    
     return current_user
+
 
 async def get_token_data(
     request: Request,
@@ -99,18 +115,30 @@ async def get_token_data(
     access_token: Optional[str] = Cookie(None)
 ) -> Optional[Dict[str, Any]]:
     """
-    Извлекает данные из токена без проверки пользователя в БД.
-    Полезно для проверки прав доступа или получения метаданных из токена.
+    Извлекает данные токена из разных источников.
+    Возвращает словарь с данными или None.
     """
-    # Определяем токен из разных источников
-    jwt_token = token or (credentials.credentials if credentials else None) or access_token or request.query_params.get("token")
+    jwt_token = None
+    
+    if token:
+        jwt_token = token
+    elif credentials:
+        jwt_token = credentials.credentials
+    elif access_token:
+        jwt_token = access_token
+    else:
+        jwt_token = request.query_params.get("token")
     
     if not jwt_token:
         return None
     
-    try:
-        # Используем verify_token, который возвращает словарь с данными
-        token_info = verify_token(jwt_token)
-        return token_info
-    except HTTPException:
+    token_data = decode_access_token(jwt_token)
+    if not token_data:
         return None
+    
+    return {
+        "sub": token_data.sub,
+        "email": token_data.email,
+        "name": token_data.name,
+        "is_active": token_data.is_active
+    }

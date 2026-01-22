@@ -1,17 +1,10 @@
 from fastapi import APIRouter, HTTPException
-
 from app.services.data_service import data_service
 
-# Роутер для эндпоинтов работы с данными
 router = APIRouter()
 
 @router.get("/data-sources")
 def get_data_sources():
-    """
-    Получение информации обо всех доступных источниках данных.
-    
-    GET /api/v1/data-sources
-    """
     try:
         return data_service.get_all_data_sources()
     except Exception as e:
@@ -20,11 +13,6 @@ def get_data_sources():
 
 @router.get("/categories") 
 def get_categories():
-    """
-    Получение всех доступных категорий FAQ.
-    
-    GET /api/v1/categories
-    """
     try:
         categories = data_service.get_categories()
         return {"categories": categories}
@@ -34,11 +22,6 @@ def get_categories():
 
 @router.get("/faqs/{category}")
 def get_faqs_by_category(category: str):
-    """
-    Получение FAQ по определенной категории.
-    
-    GET /api/v1/faqs/{category}
-    """
     try:
         faqs = data_service.get_faqs_by_category(category)
         return {"faqs": faqs, "category": category}
@@ -48,11 +31,6 @@ def get_faqs_by_category(category: str):
 
 @router.get("/statistics")
 def get_data_statistics():
-    """
-    Получение статистики по данным.
-    
-    GET /api/v1/statistics
-    """
     try:
         stats = data_service.get_data_statistics()
         return stats

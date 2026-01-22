@@ -7,10 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, Query
 from fastapi.responses import RedirectResponse
 from app.services.auth_service import auth_service 
 from app.core.config import settings
-from app.auth.deps import get_current_user
-from app.auth.jwt import create_access_token, decode_access_token
+from app.dependencies import get_current_user
+from app.core.security import create_access_token, decode_access_token
 from app.auth.oauth import get_oauth_provider
-from app.models.user import User
+from app.schemas.user import User
 
 import logging
 
@@ -45,7 +45,18 @@ def _del_tmp_cookie(response: Response, key: str) -> None:
         secure=not settings.DEBUG,
         samesite="lax",
     )
-
+@router.get("/test")
+def auth_test(current_user: User = Depends(get_current_user)):
+    return {
+        "authenticated": True,
+        "user": {
+            "id": current_user.id,
+            "email": current_user.email,
+            "name": current_user.name,
+            "is_active": current_user.is_active,
+        },
+        "message": "Authentication successful",
+    }
 
 @router.get("/login/{provider}")
 async def login_oauth(
@@ -87,7 +98,6 @@ async def oauth_callback(
     state: str = Query(None),
     error: str = Query(None),
 ):
-    """Callback для OAuth провайдеров после авторизации."""
     
     logger.info(f"[OAUTH CALLBACK] Provider: {provider}")
     logger.info(f"[OAUTH CALLBACK] Code present: {bool(code)}")
@@ -95,14 +105,12 @@ async def oauth_callback(
     logger.info(f"[OAUTH CALLBACK] Error: {error}")
     logger.info(f"[OAUTH CALLBACK] Cookies: {request.cookies}")
     
-    # Check for error from provider
     if error:
         logger.warning(f"OAuth error from {provider}: {error}")
         return RedirectResponse(
             url=f"{settings.FRONTEND_URL}/login?error={error}"
         )
-
-    # Check for presence of code and state
+    
     if not code or not state:
         error_msg = "Missing code or state parameter"
         logger.error(f"[OAUTH CALLBACK ERROR] {error_msg}")
@@ -148,7 +156,6 @@ async def oauth_callback(
         if not provider_id or not email:
             raise HTTPException(status_code=400, detail="Некорректные данные пользователя от провайдера")
 
-        # Upsert пользователя
         user = await auth_service.get_or_create_oauth_user(
         provider=provider,
         provider_id=provider_id,
@@ -210,9 +217,6 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
 
 @router.post("/logout")
 async def logout(response: Response):
-    """
-    Выход: удаляем httpOnly-cookie с access JWT.
-    """
     response.delete_cookie(
         key="access_token",
         httponly=True,
@@ -270,9 +274,6 @@ async def refresh_token(request: Request, response: Response):
 
 @router.get("/providers")
 async def get_oauth_providers():
-    """
-    Возвращает список доступных и настроенных OAuth-провайдеров.
-    """
     providers = []
     for name, cfg in settings.OAUTH_PROVIDERS.items():
         if cfg.get("client_id"):

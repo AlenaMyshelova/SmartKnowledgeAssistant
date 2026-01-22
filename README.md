@@ -1,4 +1,3 @@
 # Smart Knowledge Assistant
 
-#uvicorn main:app --reload --port 8000
-#.venv/bin/activate
+My awesome assistan. The bestest in the Universe! Bow to your new evil overlord!
