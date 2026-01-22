@@ -246,10 +246,10 @@ async def delete_chat_session(
         if not owns:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Chat {chat_id} not found")
 
-        ok = await chat_service.delete_chat(chat_id)
-        if not ok:
+        delete_chat = await chat_service.delete_chat(chat_id)
+        if not delete_chat:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete chat")
-        return MessageResponse(message="Chat deleted successfully")
+        return MessageResponse(message="Chat deleted successfully",chat_id=chat_id)
     except HTTPException:
         raise
     except Exception as e:

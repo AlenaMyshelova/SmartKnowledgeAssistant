@@ -4,6 +4,7 @@ import React, {
   useContext,
   useCallback,
   useEffect,
+  useRef,
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
@@ -47,6 +48,19 @@ export const ChatProvider = ({ children }) => {
   const [savedFilters, setSavedFilters] = useState([]);
   const [deletedChats, setDeletedChats] = useState([]);
 
+  // Refs для доступа к актуальным значениям в колбэках
+  const deletedChatsRef = useRef(deletedChats);
+  const deleteTimersRef = useRef(deleteTimers);
+
+  // Обновляем refs при изменении state
+  useEffect(() => {
+    deletedChatsRef.current = deletedChats;
+  }, [deletedChats]);
+
+  useEffect(() => {
+    deleteTimersRef.current = deleteTimers;
+  }, [deleteTimers]);
+
   const apiCall = async (endpoint, options = {}) => {
     if (!token) {
       throw new Error("No authentication token");
@@ -88,10 +102,23 @@ export const ChatProvider = ({ children }) => {
 
         console.log("Loaded chats data:", data);
 
-        const regularChats = (data.chats || []).filter((chat) => chat.id > 0);
+        let regularChats = (data.chats || []).filter((chat) => chat.id > 0);
+
+        // ВАЖНО: Фильтруем чаты которые находятся в процессе удаления
+        const deletedChatIds = deletedChats.map((c) => c.id);
+        regularChats = regularChats.filter(
+          (chat) => !deletedChatIds.includes(chat.id),
+        );
 
         if (append) {
-          setChats((prev) => [...prev, ...regularChats]);
+          setChats((prev) => {
+            // При добавлении также фильтруем удалённые
+            const existingIds = prev.map((c) => c.id);
+            const newChats = regularChats.filter(
+              (c) => !existingIds.includes(c.id),
+            );
+            return [...prev, ...newChats];
+          });
         } else {
           setChats(regularChats);
         }
@@ -106,7 +133,7 @@ export const ChatProvider = ({ children }) => {
         setLoading(false);
       }
     },
-    [token, user],
+    [token, user, deletedChats],
   );
 
   // Load more chats for infinite scroll
@@ -166,6 +193,13 @@ export const ChatProvider = ({ children }) => {
     async (chatId) => {
       if (!chatId || !token) return;
 
+      // Проверяем, не удалён ли этот чат
+      const isDeleted = deletedChats.some((c) => c.id === chatId);
+      if (isDeleted) {
+        console.log("Chat is deleted, skipping load:", chatId);
+        return;
+      }
+
       try {
         setLoading(true);
         const data = await apiCall(`/chat/sessions/${chatId}`);
@@ -173,12 +207,17 @@ export const ChatProvider = ({ children }) => {
         setMessages(data.messages || []);
       } catch (err) {
         console.error("Error loading chat history:", err);
+        // Если чат не найден (404) — очищаем состояние
+        if (err.message.includes("404") || err.message.includes("not found")) {
+          setCurrentChat(null);
+          setMessages([]);
+        }
         setError(err.message);
       } finally {
         setLoading(false);
       }
     },
-    [token],
+    [token, deletedChats],
   );
 
   // Send message
@@ -391,52 +430,45 @@ export const ChatProvider = ({ children }) => {
       if (currentChat?.id === chatId) {
         setCurrentChat(null);
         setMessages([]);
+        // Переходим на главную страницу чата
+        navigate("/chat");
       }
 
       // Создаем таймер для отложенного удаления
       const timer = setTimeout(async () => {
-        // Проверяем, не был ли чат восстановлен
-        setDeletedChats((currentDeleted) => {
-          const stillDeleted = currentDeleted.find((c) => c.id === chatId);
+        try {
+          await apiCall(`/chat/sessions/${chatId}`, {
+            method: "DELETE",
+          });
 
-          // Если чат все еще в списке удаленных - удаляем с сервера
-          if (stillDeleted) {
-            apiCall(`/chat/sessions/${chatId}`, {
-              method: "DELETE",
-            })
-              .then(() => {
-                // После успешного удаления убираем из deletedChats
-                setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
-                // Удаляем таймер из хранилища
-                setDeleteTimers((prev) => {
-                  const newTimers = { ...prev };
-                  delete newTimers[chatId];
-                  return newTimers;
-                });
-              })
-              .catch((err) => {
-                // При ошибке восстанавливаем чат
-                setChats((prev) => {
-                  if (!prev.find((c) => c.id === chatId)) {
-                    return [...prev, chatToDelete].sort(
-                      (a, b) => new Date(b.updated_at) - new Date(a.updated_at),
-                    );
-                  }
-                  return prev;
-                });
-                setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
-                console.error("Error deleting chat:", err);
+          // После успешного удаления убираем из deletedChats
+          setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
 
-                if (window.enqueueSnackbar) {
-                  window.enqueueSnackbar("Failed to delete chat", {
-                    variant: "error",
-                  });
-                }
-              });
+          // Удаляем таймер
+          setDeleteTimers((prev) => {
+            const newTimers = { ...prev };
+            delete newTimers[chatId];
+            return newTimers;
+          });
+        } catch (err) {
+          // При ошибке восстанавливаем чат
+          setChats((prev) => {
+            if (!prev.find((c) => c.id === chatId)) {
+              return [...prev, chatToDelete].sort(
+                (a, b) => new Date(b.updated_at) - new Date(a.updated_at),
+              );
+            }
+            return prev;
+          });
+          setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
+          console.error("Error deleting chat:", err);
+
+          if (window.enqueueSnackbar) {
+            window.enqueueSnackbar("Failed to delete chat", {
+              variant: "error",
+            });
           }
-
-          return currentDeleted;
-        });
+        }
       }, 5000); // 5 секунд на undo
 
       // Сохраняем таймер
@@ -444,30 +476,45 @@ export const ChatProvider = ({ children }) => {
 
       return chatToDelete;
     },
-    [chats, currentChat, token],
+    [chats, currentChat, navigate],
   );
 
-  // Undo delete - ИСПРАВЛЕННАЯ ВЕРСИЯ
+  // Undo delete - использует refs для актуальных значений
   const undoDelete = useCallback(
     (chatId) => {
-      const chatToRestore = deletedChats.find((c) => c.id === chatId);
-      if (!chatToRestore) return;
+      console.log("undoDelete called for chatId:", chatId);
+      console.log("deletedChatsRef.current:", deletedChatsRef.current);
+      console.log("deleteTimersRef.current:", deleteTimersRef.current);
+
+      const chatToRestore = deletedChatsRef.current.find(
+        (c) => c.id === chatId,
+      );
+      if (!chatToRestore) {
+        console.log("Chat not found in deletedChats, cannot restore");
+        return;
+      }
 
       // Отменяем таймер удаления
-      if (deleteTimers[chatId]) {
-        clearTimeout(deleteTimers[chatId]);
+      const timer = deleteTimersRef.current[chatId];
+      if (timer) {
+        console.log("Clearing timer for chatId:", chatId);
+        clearTimeout(timer);
         setDeleteTimers((prev) => {
           const newTimers = { ...prev };
           delete newTimers[chatId];
           return newTimers;
         });
+      } else {
+        console.log("No timer found for chatId:", chatId);
       }
 
       // Восстанавливаем чат в список
       setChats((prev) => {
         if (prev.find((c) => c.id === chatId)) {
+          console.log("Chat already in list, not adding");
           return prev;
         }
+        console.log("Restoring chat to list");
         return [...prev, chatToRestore].sort(
           (a, b) => new Date(b.updated_at) - new Date(a.updated_at),
         );
@@ -475,8 +522,9 @@ export const ChatProvider = ({ children }) => {
 
       // Удаляем из списка удаленных
       setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
+      console.log("Chat restored successfully");
     },
-    [deletedChats, deleteTimers],
+    [], // Пустые зависимости - используем refs
   );
 
   // Очистка таймеров при размонтировании
@@ -489,6 +537,7 @@ export const ChatProvider = ({ children }) => {
 
   const updateChat = useCallback(
     async (chatId, updates) => {
+      // Оптимистичное обновление UI
       setChats((prev) =>
         prev.map((chat) =>
           chat.id === chatId ? { ...chat, ...updates } : chat,
@@ -501,12 +550,17 @@ export const ChatProvider = ({ children }) => {
           body: JSON.stringify(updates),
         });
       } catch (err) {
-        loadChats(page);
+        // НЕ вызываем loadChats при ошибке если чат удалён
+        const isDeleted = deletedChats.some((c) => c.id === chatId);
+        if (!isDeleted) {
+          // Откатываем изменения только если чат не удалён
+          loadChats(page);
+        }
         console.error("Error updating chat:", err);
         setError(err.message);
       }
     },
-    [token, page, loadChats],
+    [page, loadChats, deletedChats],
   );
 
   const searchChats = useCallback(

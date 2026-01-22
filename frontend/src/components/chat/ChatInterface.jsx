@@ -46,6 +46,7 @@ const ChatInterface = () => {
     createNewChat,
     setMessages,
     toggleIncognito,
+    deletedChats,
   } = useChat();
 
   const [showSources, setShowSources] = useState({});
@@ -55,6 +56,15 @@ const ChatInterface = () => {
   useEffect(() => {
     if (chatId) {
       const parsedChatId = parseInt(chatId);
+
+      // Проверяем, не удалён ли этот чат
+      const isDeleted = deletedChats.some((c) => c.id === parsedChatId);
+      if (isDeleted) {
+        console.log("Chat is deleted, redirecting to /chat");
+        navigate("/chat", { replace: true });
+        return;
+      }
+
       // Загружаем историю только если это другой чат
       if (!currentChat || currentChat.id !== parsedChatId) {
         console.log("Loading chat history for:", parsedChatId);
@@ -72,7 +82,7 @@ const ChatInterface = () => {
         setMessages([]);
       }
     }
-  }, [chatId]); // ВАЖНО: убираем лишние зависимости!
+  }, [chatId, deletedChats]); // Добавили deletedChats в зависимости
 
   useEffect(() => {
     scrollToBottom();
