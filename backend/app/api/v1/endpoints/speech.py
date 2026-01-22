@@ -5,8 +5,8 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends
 from pydantic import BaseModel
 
 from app.services.speech_service import speech_service
-from app.auth.deps import get_current_user_optional
-from app.models.user import User
+from app.dependencies import get_current_user_optional
+from app.schemas.user import User
 
 logger = logging.getLogger(__name__)
 

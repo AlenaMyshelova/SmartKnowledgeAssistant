@@ -1,9 +1,9 @@
 from typing import Optional
 import logging
 from datetime import datetime
-from app.database import db_manager
+from app.database.database import db_manager
 from app.utils.async_utils import run_sync
-from app.models.user import User, UserCreate
+from app.schemas.user import User, UserCreate
  
 logger = logging.getLogger(__name__)
 

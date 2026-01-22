@@ -12,15 +12,11 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
-from app.models.database_models import (
-    Base, 
-    User as SQLUser, 
-    ChatSession as SQLChatSession, 
-    ChatMessage as SQLChatMessage, 
-    ChatLog as SQLChatLog
-)
-from app.models.user import UserCreate, User as PydanticUser, UserUpdate, sqlalchemy_to_pydantic
-from app.models.chat import (
+from app.models import Base
+from app.models.user import User as SQLUser
+from app.models.chat import ChatSession as SQLChatSession, ChatMessage as SQLChatMessage, ChatLog as SQLChatLog
+from app.schemas.user import UserCreate, User as PydanticUser, UserUpdate, sqlalchemy_to_pydantic
+from app.schemas.chat import (
     ChatSession as PydanticChatSession, 
     ChatMessage as PydanticMessage,
     ChatSessionCreate,
@@ -38,7 +34,7 @@ class DatabaseManager:
 
     def __init__(self, db_path: str = "./data/assistant.db") -> None:
         current_file = Path(__file__).resolve()
-        backend_dir = current_file.parent.parent  
+        backend_dir = current_file.parent.parent.parent  
         
         self.db_path: Path = (backend_dir / db_path).resolve()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)

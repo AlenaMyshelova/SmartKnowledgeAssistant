@@ -4,7 +4,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.services.chat_service import chat_service
-from app.models.chat import (
+from app.schemas.chat import (
     ChatRequest,
     ChatResponse,
     ChatListResponse,
@@ -15,8 +15,8 @@ from app.models.chat import (
     ChatSession,
     ChatMessage,
 )
-from app.models.user import User
-from app.auth.deps import get_current_user
+from app.schemas.user import User
+from app.dependencies import get_current_user
 
 
 router = APIRouter(tags=["chat"])

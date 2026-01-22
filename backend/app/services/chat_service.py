@@ -1,8 +1,8 @@
 from typing import List, Optional, Dict, Any
 import logging
 from datetime import datetime
-from app.database import db_manager
-from app.models.chat import ChatSession, ChatMessage
+from app.database.database import db_manager
+from app.schemas.chat import ChatSession, ChatMessage
 from app.data_manager import DataManager
 from app.chat_utils import build_context_from_results
 from app.services.openai_service import openai_service
