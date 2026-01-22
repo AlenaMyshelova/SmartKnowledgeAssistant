@@ -138,9 +138,9 @@ const Sidebar = ({ onClose }) => {
   const visibleChats = useMemo(() => {
     const chatList = searchQuery ? searchResults : chats;
 
-    console.log("🔍 searchQuery:", searchQuery);
-    console.log("🔍 searchResults:", searchResults);
-    console.log("🔍 chatList:", chatList);
+    console.log("searchQuery:", searchQuery);
+    console.log("searchResults:", searchResults);
+    console.log("chatList:", chatList);
 
     if (!chatList) return [];
 
@@ -256,7 +256,6 @@ const Sidebar = ({ onClose }) => {
     }));
   };
 
-  // Group chats by date - используем отфильтрованные чаты
   const groupChats = (chatList) => {
     const groups = {
       today: [],
@@ -528,7 +527,7 @@ const Sidebar = ({ onClose }) => {
 
       <Divider sx={{ borderColor: alpha("#fff", 0.1) }} />
 
-      {/* Chat List with Infinite Scroll - ИСПРАВЛЕНО */}
+      {/* Chat List with Infinite Scroll */}
       <Box
         ref={scrollableNodeRef}
         sx={{

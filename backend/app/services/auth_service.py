@@ -1,8 +1,8 @@
 from typing import Optional
 import logging
 from datetime import datetime
-
 from app.database import db_manager
+from app.utils.async_utils import run_sync
 from app.models.user import User, UserCreate
  
 logger = logging.getLogger(__name__)
@@ -17,9 +17,8 @@ class AuthService:
         self.db = db_manager
     
     async def get_user_by_id(self, user_id: int) -> Optional[User]:
-        """Get user by ID."""
         try:
-            user = self.db.get_user_by_id(user_id)
+            user = await run_sync(self.db.get_user_by_id, user_id)
             if user:
                 logger.debug(f"User {user_id} found")
             else:
@@ -30,9 +29,8 @@ class AuthService:
             return None
     
     async def get_user_by_email(self, email: str) -> Optional[User]:
-        """Get user by email address."""
         try:
-            user = self.db.get_user_by_email(email)
+            user = await run_sync(self.db.get_user_by_email, email)
             if user:
                 logger.debug(f"User found by email: {email}")
             else:
@@ -47,9 +45,8 @@ class AuthService:
         provider: str,
         provider_id: str
     ) -> Optional[User]:
-        """Get user by OAuth provider and ID."""
         try:
-            return self.db.get_user_by_oauth_id(provider, provider_id)
+            return await run_sync(self.db.get_user_by_oauth_id, provider, provider_id)
         except Exception as e:
             logger.error(f"Error getting OAuth user: {e}")
             return None
@@ -74,7 +71,7 @@ class AuthService:
                 is_active= True
                 )
             
-            user = self.db.create_user(user_data)
+            user = await run_sync(self.db.create_user, user_data)
             logger.info(f"Created new user: {email} (ID: {user.id})")
             return user
             
@@ -83,9 +80,8 @@ class AuthService:
             return None
     
     async def update_last_login(self, user_id: int) -> bool:
-        """Update user's last login timestamp."""
         try:
-            success = self.db.update_last_login(user_id)
+            success = await run_sync(self.db.update_last_login, user_id)
             if success:
                 logger.debug(f"Updated last login for user {user_id}")
             return success
@@ -102,21 +98,14 @@ class AuthService:
         avatar_url: Optional[str] = None,
         provider_data: Optional[dict] = None
     ) -> Optional[User]:
-        """
-        Get existing OAuth user or create new one.
-        Encapsulates the full OAuth user creation flow.
-        """
         try:
-            # Try to find existing user
             existing_user = await self.get_user_by_oauth_id(provider, provider_id)
             
             if existing_user:
-                # Update last login
                 await self.update_last_login(existing_user.id)
                 logger.info(f"OAuth login: {email} (existing user {existing_user.id})")
                 return existing_user
             
-            # Create new user
             new_user = await self.create_user(
                 email=email,
                 name=name,

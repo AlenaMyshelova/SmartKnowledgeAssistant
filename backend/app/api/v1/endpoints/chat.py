@@ -1,7 +1,6 @@
 from typing import Optional
 import logging
 import time
-from unittest import result
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.services.chat_service import chat_service
@@ -64,7 +63,7 @@ async def send_message(
             response=result["response"],
             chat_id=result["chat_id"],
             message_id=result["message_id"],
-            user_message_id=None,  #  !вернуть из ChatService
+            user_message_id=None,  
             is_incognito=(result["chat_id"] < 0),
             sources=result["sources"],
             processing_time=time.time() - start,
@@ -87,7 +86,6 @@ async def create_chat_session(
     request: ChatSessionCreate | None = None,
     current_user: User = Depends(get_current_user),
 ):
-    """Создать новый чат (incognito или обычный)."""
     try:
         request = request or ChatSessionCreate()
         session = await chat_service.create_chat_session(
@@ -98,7 +96,6 @@ async def create_chat_session(
         if not session:
             raise HTTPException(status_code=500, detail="Failed to create chat")
 
-        # если передан first_message — сразу прогоняем через пайплайн
         if request.first_message:
             await chat_service.get_response_with_sources(
                 chat_id=session.id,
@@ -138,14 +135,12 @@ async def get_chat_sessions(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
-    """Список чатов пользователя (по умолчанию без incognito)."""
     try:
         chats = await chat_service.get_user_chats(
             user_id=current_user.id,
             include_archived=include_archived,
             include_incognito=include_incognito,
         )
-        # простая пагинация по списку
         start = (page - 1) * page_size
         end = start + page_size
         total = len(chats)
@@ -168,7 +163,6 @@ async def get_chat_history(
     limit: Optional[int] = Query(None, ge=1, le=1000),
     offset: int = Query(0, ge=0),
 ):
-    """История сообщений для любого чата (incognito + persisted)."""
     try:
         owns = await chat_service.verify_chat_owner(chat_id, current_user.id)
         if not owns:
@@ -198,7 +192,6 @@ async def update_chat_session(
     request: UpdateChatRequest,
     current_user: User = Depends(get_current_user),
 ):
-    """Обновить свойства обычного чата (incognito — запрещено)."""
     try:
         if chat_id < 0:
             raise HTTPException(status_code=400, detail="Cannot update incognito chat")
@@ -228,7 +221,6 @@ async def delete_chat_session(
     chat_id: int,
     current_user: User = Depends(get_current_user),
 ):
-    """Удалить чат (incognito стирается из памяти, обычный — из БД)."""
     try:
         owns = await chat_service.verify_chat_owner(chat_id, current_user.id)
         if not owns:
@@ -253,17 +245,11 @@ async def delete_chat_session(
 async def clear_incognito(
     user: User = Depends(get_current_user),
 ):
-    """Очистить ВСЕ инкогнито-чаты пользователя из памяти."""
     cleared = chat_service.clear_incognito_chats(user.id)
     return {"status": "ok", "cleared": cleared}
 
 
 @router.post("/mode")
 async def switch_mode(payload: dict, user: User = Depends(get_current_user)):
-    """
-    Переключить режим пользователя:
-    - to_incognito=True → просто отмечаем режим
-    - to_incognito=False → мгновенно чистим все инкогнито-чаты
-    """
     to_incognito = bool(payload.get("to_incognito"))
     return await chat_service.switch_user_mode(user.id, to_incognito)

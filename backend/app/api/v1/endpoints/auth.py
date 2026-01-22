@@ -87,7 +87,6 @@ async def oauth_callback(
     state: str = Query(None),
     error: str = Query(None),
 ):
-    """Callback для OAuth провайдеров после авторизации."""
     
     logger.info(f"[OAUTH CALLBACK] Provider: {provider}")
     logger.info(f"[OAUTH CALLBACK] Code present: {bool(code)}")
@@ -95,14 +94,12 @@ async def oauth_callback(
     logger.info(f"[OAUTH CALLBACK] Error: {error}")
     logger.info(f"[OAUTH CALLBACK] Cookies: {request.cookies}")
     
-    # Check for error from provider
     if error:
         logger.warning(f"OAuth error from {provider}: {error}")
         return RedirectResponse(
             url=f"{settings.FRONTEND_URL}/login?error={error}"
         )
-
-    # Check for presence of code and state
+    
     if not code or not state:
         error_msg = "Missing code or state parameter"
         logger.error(f"[OAUTH CALLBACK ERROR] {error_msg}")

@@ -12,6 +12,7 @@ from app.database import init_db
 from app.middleware.auth_middleware import AuthMiddleware
 from app.core.config import settings
 from app.api.v1.api import api_router
+from app.utils.async_utils import shutdown_executor
 from app.auth.deps import get_current_user
 
 # Инициализация менеджера данных
@@ -24,7 +25,6 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc"
 )
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
@@ -33,8 +33,6 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"], 
 )
-
-# 2. Auth middleware
 app.add_middleware(AuthMiddleware)
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
@@ -66,11 +64,15 @@ async def startup_event():
     
     print(f"🌐 Server starting on {settings.BACKEND_URL}")
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on application shutdown."""
+    print("Shutting down thread pool executor...")
+    shutdown_executor()
+    print("Cleanup complete")
+
 @app.get("/")
 def root():
-    """
-    Корневой эндпоинт - информация об API.
-    """
     return {
         "message": f"Welcome to {settings.PROJECT_NAME}",
         "version": settings.VERSION,
@@ -84,24 +86,10 @@ def root():
         }
     }
 
-@app.get("/health")
-def health_check():
-    """
-    Простая проверка здоровья приложения (публичный эндпоинт).
-    """
-    return {
-        "status": "healthy",
-        "version": settings.VERSION,
-        "timestamp": "2024-01-01T00:00:00Z"  # datetime.utcnow()
-    }
 
 # Защищенный эндпоинт для проверки аутентификации
 @app.get(f"{settings.API_V1_STR}/auth-test")
 def auth_test(current_user = Depends(get_current_user)):
-    """
-    Тестовый эндпоинт для проверки аутентификации.
-    Требует действительный JWT токен.
-    """
     return {
         "authenticated": True,
         "user": {

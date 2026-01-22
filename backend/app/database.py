@@ -10,7 +10,6 @@ from contextlib import contextmanager
 from sqlalchemy import create_engine, text, func, case
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
-# from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
 from app.models.database_models import (
@@ -39,7 +38,7 @@ class DatabaseManager:
 
     def __init__(self, db_path: str = "./data/assistant.db") -> None:
         current_file = Path(__file__).resolve()
-        backend_dir = current_file.parent.parent  # app/ -> backend/
+        backend_dir = current_file.parent.parent  
         
         self.db_path: Path = (backend_dir / db_path).resolve()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -363,7 +362,6 @@ class DatabaseManager:
                 results = []
                 seen_chat_ids = set()
                 
-                # 1. Поиск в заголовках чатов
                 title_query = session.query(SQLChatSession).filter(
                     SQLChatSession.user_id == user_id,
                     SQLChatSession.is_incognito == False,  
