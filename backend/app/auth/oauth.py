@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from typing import Dict, Any, Optional, List
 import logging
 from urllib.parse import urlencode
@@ -9,7 +8,6 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 
-# Настройка логирования
 logger = logging.getLogger(__name__)
 
 # Общий таймаут для HTTP-запросов к OAuth-провайдерам

@@ -1,6 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional, Dict, Any, List
-from functools import cached_property
+from functools import cached_property, lru_cache
 
 class Settings(BaseSettings):
     # Pydantic settings v2
@@ -87,6 +87,20 @@ class Settings(BaseSettings):
             }
 
         return providers
-    
 
-settings = Settings()
+
+@lru_cache
+def get_settings() -> Settings:
+    """
+    Создает и кэширует экземпляр Settings.
+    
+    Использование @lru_cache гарантирует:
+    - Настройки читаются из .env только один раз
+    - Один и тот же объект используется во всех запросах
+    - Легко переопределить в тестах через dependency_overrides
+    """
+    return Settings()
+
+
+# Для обратной совместимости (постепенно заменять на Depends(get_settings))
+settings = get_settings()

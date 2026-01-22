@@ -173,8 +173,43 @@ class ChatModeStatus(BaseModel):
     active_incognito_sessions: List[int] = []
 
 
+# =============================================================================
+# Additional Response Schemas
+# =============================================================================
 
+class CreateSessionResponse(BaseModel):
+    """Schema for create session response."""
+    chat_id: int
+    is_incognito: bool = False
+    title: Optional[str] = None
+
+
+class SearchChatsResponse(BaseModel):
+    """Schema for search chats response."""
+    results: List[ChatSession]
+    total: int
+
+
+class MessageResponse(BaseModel):
+    """Schema for simple message response."""
+    message: str
+    chat_id: Optional[int] = None
+
+
+class ClearIncognitoResponse(BaseModel):
+    """Schema for clear incognito response."""
+    status: str = "ok"
+    cleared: int = 0
+
+
+class SwitchModeResponse(BaseModel):
+    """Schema for switch mode response."""
+    status: str
+    mode: str
+    chat_id: Optional[int] = None
+
+
+# Type aliases for backward compatibility
 CreateChatRequest = ChatSessionCreate
 Message = ChatMessage
-MessageResponse = ChatMessage
 ChatSessionResponse = ChatSession

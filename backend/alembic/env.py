@@ -5,21 +5,17 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-# Add the parent directory to sys.path so we can import our models
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from app.models import Base
 
 compare_type=True
 render_as_batch=True
-# this is the Alembic Config object
 config = context.config
 
-# Interpret the config file for Python logging
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here for 'autogenerate' support
 target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:

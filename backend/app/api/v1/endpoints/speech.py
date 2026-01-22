@@ -1,7 +1,7 @@
 import logging
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from app.services.speech_service import speech_service
@@ -10,7 +10,15 @@ from app.schemas.user import User
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+# Type aliases
+OptionalUser = Annotated[Optional[User], Depends(get_current_user_optional)]
+
+router = APIRouter(
+    tags=["speech"],
+    responses={
+        status.HTTP_500_INTERNAL_SERVER_ERROR: {"description": "Service error"},
+    },
+)
 
 
 class TranscriptionResponse(BaseModel):
@@ -25,7 +33,7 @@ async def transcribe_audio(
     audio: UploadFile = File(..., description="Audio file to transcribe"),
     language: Optional[str] = Form(None, description="Language code (e.g., 'en', 'ru', 'es')"),
     prompt: Optional[str] = Form(None, description="Optional prompt to guide transcription"),
-    current_user: Optional[User] = Depends(get_current_user_optional)
+    current_user: OptionalUser = None,
 ):
     """
     Transcribe audio file to text using OpenAI Whisper.
@@ -66,10 +74,7 @@ async def transcribe_audio(
         raise
     except Exception as e:
         logger.error(f"Unexpected error during transcription: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Transcription failed: {str(e)}"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Transcription failed: {str(e)}")
 
 
 @router.get("/languages")
