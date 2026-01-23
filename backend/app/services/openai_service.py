@@ -1,7 +1,7 @@
 from typing import List, Dict, Any, Optional
 import logging
 from openai import OpenAI
-
+import traceback
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,6 @@ class OpenAIService:
             use_structured_prompts: Whether to use structured system/user prompts (recommended)
         """
         try:
-            # Build messages array
             messages = []
             
             if use_structured_prompts:
@@ -94,7 +93,6 @@ class OpenAIService:
             
         except Exception as e:
             logger.error(f"Error generating OpenAI response: {type(e).__name__}: {e}")
-            # Re-raise with more details for debugging
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return None
@@ -250,7 +248,6 @@ Response Style:
         Useful for creating chat titles or conversation summaries.
         """
         try:
-            # Build conversation text
             conversation_text = "\n".join([
                 f"{msg.get('role', 'unknown').title()}: {msg.get('content', '')}"
                 for msg in messages[-10:]  # Last 10 messages
@@ -338,5 +335,4 @@ Respond in JSON format:
         
         return truncated + "\n\n[Content truncated for length...]"
 
-# Create service instance
 openai_service = OpenAIService()

@@ -3,8 +3,8 @@ Pydantic schemas for API validation.
 """
 from app.schemas.user import (
     UserBase, UserCreate, UserUpdate, UserInDB, User,
-    TokenData, Token, OAuthProvider, OAuthProvidersResponse,
-    sqlalchemy_to_pydantic
+    TokenData, Token, OAuthProvider, OAuthProvidersResponse
+    
 )
 from app.schemas.chat import (
     MessageRole, DataSource,
@@ -19,7 +19,6 @@ __all__ = [
     # User schemas
     "UserBase", "UserCreate", "UserUpdate", "UserInDB", "User",
     "TokenData", "Token", "OAuthProvider", "OAuthProvidersResponse",
-    "sqlalchemy_to_pydantic",
     # Chat schemas
     "MessageRole", "DataSource",
     "ChatSessionBase", "ChatSessionCreate", "ChatSessionUpdate", "ChatSession",

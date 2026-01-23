@@ -2,57 +2,57 @@ from typing import List, Dict, Any, Tuple
 
 def build_context_from_results(results: List[Dict[str, Any]]) -> Tuple[str, str]:
     """
-    Создание контекста для запроса к AI из результатов поиска.
+    Creates context for AI query from search results.
     
     Args:
-        results: результаты поиска (с оценками релевантности)
+        results: search results (with relevance scores)
         
     Returns:
-        Tuple[str, str]: (контекст для AI, заметка о недостатке данных)
+        Tuple[str, str]: (context for AI, note about data scarcity)
     """
     if not results:
         return "", "\n\nNote: No relevant information was found in our knowledge base. Please answer based on your general knowledge."
     
-    # Сортируем результаты по релевантности (если есть оценки)
+    # Sort results by relevance (if scores are present)
     if "_score" in results[0]:
         results = sorted(results, key=lambda x: x.get("_score", 0), reverse=True)
     
-    # Строим контекст из результатов
+    # Build context from results
     context_parts = []
     
     for i, result in enumerate(results):
-    # Более информативная метка с категорией и ID
+    # More informative label with category and ID
         category = result.get("Category", "General")
         faq_id = result.get("ID", i+1)
         
-        # Формируем заголовок секции
+        # Form section header
         section = f"--- {category} FAQ #{faq_id} ---\n"
         
-        # Добавляем содержимое документа
+        # Add document content
         if "Question" in result and "Answer" in result:
-            # Для FAQ формата
+            # For FAQ format
             section += f"Question: {result['Question']}\n"
             section += f"Answer: {result['Answer']}\n"
             
-            # Добавляем категорию, если есть
+            # Add category if present
             if "Category" in result and result["Category"]:
                 section += f"Category: {result['Category']}\n"
         else:
-            # Для произвольного документа
-            # Исключаем служебные поля
+            # For arbitrary document
+            # Exclude service fields
             skip_fields = ["_score", "_id", "_source", "_document_id", "_source_id"]
             
-            # Добавляем все остальные поля
+            # Add all other fields
             for key, value in result.items():
                 if key not in skip_fields and value is not None:
                     section += f"{key}: {value}\n"
         
         context_parts.append(section)
     
-    # Объединяем все секции в единый контекст
+    # Combine all sections into a single context
     full_context = "\n".join(context_parts)
 
-    # Определяем, достаточно ли релевантной информации
+    # Determine if there is sufficient relevant information
     has_relevant_info = any(result.get("_score", 0) > 0.7 for result in results)
     
     scarcity_note = ""

@@ -1,21 +1,19 @@
 """
 Pydantic schemas for Chat models - API validation and serialization.
 """
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
 
 
 class MessageRole(str, Enum):
-    """Message role enum."""
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
 
 
 class DataSource(str, Enum):
-    """Data source enum."""
     COMPANY_FAQS = "company_faqs"
     UPLOADED_FILES = "uploaded_files"
     GENERAL_KNOWLEDGE = "general_knowledge"
@@ -55,8 +53,7 @@ class ChatSession(ChatSessionBase):
     message_count: Optional[int] = 0
     last_message: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 # =============================================================================
@@ -67,7 +64,24 @@ class MessageBase(BaseModel):
     """Base message schema."""
     role: str
     content: str
-    metadata: Optional[Dict[str, Any]] = {}
+    metadata: Optional[Dict[str, Any]] = Field(
+        default_factory=dict,
+        validation_alias="message_metadata"  
+    )
+    
+    @field_validator('metadata', mode='before')
+    @classmethod
+    def parse_metadata(cls, v):
+        """Parse metadata from JSON string if needed."""
+        if v is None:
+            return {}
+        if isinstance(v, str):
+            import json
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return {}
+        return v
 
 
 class MessageCreate(MessageBase):
@@ -81,8 +95,10 @@ class ChatMessage(MessageBase):
     chat_id: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True  
+    )
 
 
 # =============================================================================
@@ -137,7 +153,6 @@ class ChatListResponse(BaseModel):
 
 
 class ChatHistoryResponse(BaseModel):
-    """Schema for chat history response."""
     chat: ChatSession
     messages: List[ChatMessage]
     total_messages: int = 0
@@ -145,14 +160,12 @@ class ChatHistoryResponse(BaseModel):
 
 
 class UpdateChatRequest(BaseModel):
-    """Schema for updating chat request."""
     title: Optional[str] = None
     is_archived: Optional[bool] = None
     is_pinned: Optional[bool] = None
 
 
 class SearchChatsRequest(BaseModel):
-    """Schema for search chats request."""
     query: str = Field(..., min_length=1, max_length=200)
     include_archived: bool = False
     limit: int = Field(50, ge=1, le=100)
@@ -166,7 +179,6 @@ class SearchChatsRequest(BaseModel):
 
 
 class ChatModeStatus(BaseModel):
-    """Schema for current chat mode status."""
     has_incognito_chats: bool = False
     incognito_chat_count: int = 0
     total_chats: int = 0
@@ -178,14 +190,12 @@ class ChatModeStatus(BaseModel):
 # =============================================================================
 
 class CreateSessionResponse(BaseModel):
-    """Schema for create session response."""
     chat_id: int
     is_incognito: bool = False
     title: Optional[str] = None
 
 
 class SearchChatsResponse(BaseModel):
-    """Schema for search chats response."""
     results: List[ChatSession]
     total: int
 
@@ -197,19 +207,16 @@ class MessageResponse(BaseModel):
 
 
 class ClearIncognitoResponse(BaseModel):
-    """Schema for clear incognito response."""
     status: str = "ok"
     cleared: int = 0
 
 
 class SwitchModeResponse(BaseModel):
-    """Schema for switch mode response."""
     status: str
     mode: str
     chat_id: Optional[int] = None
 
 
-# Type aliases for backward compatibility
 CreateChatRequest = ChatSessionCreate
 Message = ChatMessage
 ChatSessionResponse = ChatSession

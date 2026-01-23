@@ -202,7 +202,6 @@ class ChatService:
         return {"mode": "incognito", "cleared": 0}
 
     async def verify_chat_owner(self, chat_id: int, user_id: int) -> bool:
-        """Verify user owns the chat."""
         if self._is_incognito_chat_id(chat_id):
             ch = self._incognito_chats.get(chat_id)
             return bool(ch and ch["user_id"] == user_id)

@@ -34,7 +34,7 @@ body {
   border-radius: 20px;
 }
 
-/* Анимации для сообщений */
+/* Animation for messages */
 @keyframes fadeIn {
   from {
     opacity: 0;

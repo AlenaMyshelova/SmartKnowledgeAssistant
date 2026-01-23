@@ -217,7 +217,7 @@ const Sidebar = ({ onClose }) => {
   };
 
   const handleChatClick = (chat) => {
-    // Загружаем историю чата при клике
+    // Load chat history if not already loaded
     if (currentChat?.id !== chat.id) {
       setCurrentChat(chat);
       setMessages([]);
@@ -382,7 +382,7 @@ const Sidebar = ({ onClose }) => {
     );
   };
 
-  // Используем отфильтрованные чаты
+  // Use grouped chats for rendering
   const groupedChats = groupChats(visibleChats);
 
   return (
@@ -617,26 +617,6 @@ const Sidebar = ({ onClose }) => {
             )}
           </>
         )}
-
-        {/* Deleted Chats Notice */}
-        {/* {deletedChats.length > 0 && (
-          <Alert
-            severity="info"
-            sx={{ m: 2 }}
-            action={
-              <Button
-                size="small"
-                onClick={() =>
-                  deletedChats.forEach((chat) => undoDelete(chat.id))
-                }
-              >
-                Restore All
-              </Button>
-            }
-          >
-            {deletedChats.length} chat(s) pending deletion
-          </Alert>
-        )} */}
       </Box>
 
       <Divider sx={{ borderColor: alpha("#fff", 0.1) }} />

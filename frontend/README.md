@@ -1,16 +1,77 @@
-# React + Vite
+# Smart Knowledge Assistant - Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React frontend for Smart Knowledge Assistant - AI-powered knowledge assistant.
 
-Currently, two official plugins are available:
+## 🚀 Quick Start
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+```bash
+# Install dependencies
+npm install
 
-## React Compiler
+# Start development server
+npm run dev
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+# Build for production
+npm run build
 
-## Expanding the ESLint configuration
+# Preview production build
+npm run preview
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+# Lint code
+npm run lint
+```
+
+## 📁 Project Structure
+
+```
+src/
+├── components/     # React components
+│   ├── auth/       # Authentication (Login, ProtectedRoute)
+│   ├── chat/       # Chat interface components
+│   └── layout/     # Layout components (MainLayout, Sidebar)
+├── contexts/       # React contexts (Auth, Chat)
+├── services/       # API client
+└── assets/         # Static assets
+```
+
+## 🔧 Environment Variables
+
+Create `.env` file in the frontend directory:
+
+```env
+VITE_API_URL=http://localhost:8000/api/v1
+```
+
+## 🛠️ Tech Stack
+
+- **React 18** - UI library
+- **Vite** - Build tool with HMR
+- **Material-UI (MUI)** - Component library
+- **React Router v6** - Navigation
+- **Axios** - HTTP client
+- **Notistack** - Snackbar notifications
+- **date-fns** - Date formatting
+
+## 📝 Available Scripts
+
+| Script            | Description                           |
+| ----------------- | ------------------------------------- |
+| `npm run dev`     | Start development server on port 5173 |
+| `npm run build`   | Create production build               |
+| `npm run preview` | Preview production build locally      |
+| `npm run lint`    | Run ESLint                            |
+
+## 🔗 API Connection
+
+The frontend connects to the backend API at the URL specified in `VITE_API_URL`.
+
+Default: `http://localhost:8000/api/v1`
+
+## 📱 Features
+
+- OAuth authentication (Google, GitHub)
+- Real-time chat interface
+- Voice input with audio recording
+- Incognito mode
+- Chat history with search
+- Responsive design

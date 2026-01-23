@@ -2,12 +2,12 @@ import React, { useRef, useEffect } from "react";
 import { Box, CircularProgress, Typography } from "@mui/material";
 import Message from "./Message";
 
-// Компонент для отображения списка сообщений
+// Component for displaying the list of messages in the chat
 const MessageList = ({ messages, loading }) => {
-  // Ref для автоматической прокрутки вниз при новых сообщениях
+  // Ref for automatic scrolling to the bottom when new messages arrive
   const messagesEndRef = useRef(null);
 
-  // Автоматическая прокрутка при получении новых сообщений
+  // Automatic scrolling when new messages arrive
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
@@ -24,7 +24,7 @@ const MessageList = ({ messages, loading }) => {
         flexDirection: "column",
       }}
     >
-      {/* Если нет сообщений, показываем приветствие */}
+      {/* If there are no messages, show a greeting */}
       {messages.length === 0 && !loading && (
         <Box
           sx={{
@@ -45,12 +45,12 @@ const MessageList = ({ messages, loading }) => {
         </Box>
       )}
 
-      {/* Отображаем все сообщения */}
+      {/* Display all messages */}
       {messages.map((msg, index) => (
         <Message key={index} message={msg.text} isUser={msg.isUser} />
       ))}
 
-      {/* Индикатор загрузки при ожидании ответа */}
+      {/* Loading indicator while waiting for a response */}
       {loading && (
         <Box
           sx={{
@@ -66,7 +66,7 @@ const MessageList = ({ messages, loading }) => {
         </Box>
       )}
 
-      {/* Элемент для автоматической прокрутки */}
+      {/* Element for automatic scrolling */}
       <div ref={messagesEndRef} />
     </Box>
   );

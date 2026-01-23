@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useLocation, useSearchParams } from "react-router-dom"; // Добавили useSearchParams
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import {
   Box,
   Button,
@@ -19,11 +19,10 @@ export default function Login() {
   const [error, setError] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const [searchParams] = useSearchParams(); // Добавили для более удобной работы с query params
+  const [searchParams] = useSearchParams();
 
   // Handle OAuth callback and errors from URL
   useEffect(() => {
-    // Проверяем токен
     const token = searchParams.get("token");
     if (token) {
       // Save token and redirect to protected route
@@ -33,11 +32,10 @@ export default function Login() {
       return;
     }
 
-    // Проверяем ошибку
     const errorParam = searchParams.get("error");
     if (errorParam) {
       setError(decodeURIComponent(errorParam));
-      // Очищаем URL от параметра error для чистоты
+      // Clear error parameter from URL for cleanliness
       searchParams.delete("error");
       navigate({ search: searchParams.toString() }, { replace: true });
     }
@@ -52,7 +50,6 @@ export default function Login() {
         const providersList =
           response.data?.providers || response?.providers || [];
 
-        // Логирование для отладки
         console.log("Loaded providers:", providersList);
 
         setProviders(providersList);
@@ -67,16 +64,15 @@ export default function Login() {
     loadProviders();
   }, []);
 
-  // Handle OAuth login - упрощенная версия с прямым редиректом
+  // Handle OAuth login
   const handleOAuthLogin = (provider) => {
     try {
-      setError(null); // Очищаем предыдущие ошибки
-      setLoading(true); // Показываем индикатор загрузки
+      setError(null); // Clear previous errors
+      setLoading(true); // Show loading indicator
 
       const baseUrl =
         import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
 
-      // Логирование для отладки
       console.log(`Redirecting to OAuth provider: ${provider}`);
       console.log(`OAuth URL: ${baseUrl}/auth/login/${provider}`);
 
@@ -84,11 +80,10 @@ export default function Login() {
     } catch (err) {
       console.error("OAuth login error:", err);
       setError(`Failed to login with ${provider}`);
-      setLoading(false); // Убираем индикатор загрузки при ошибке
+      setLoading(false); // Remove loading indicator on error
     }
   };
 
-  // Get icon for provider
   const getProviderIcon = (providerName) => {
     switch (providerName.toLowerCase()) {
       case "google":
@@ -118,23 +113,6 @@ export default function Login() {
         alignItems: "center",
         minHeight: "100vh",
         background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-
-        //        // 2. Закат:
-        //   // background: "linear-gradient(135deg, #ff9a9e 0%, #fecfef 50%, #fecfef 100%)",
-
-        //   // 3. Северное сияние:
-        //   // background: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)",
-
-        //   // 4. Космос:
-        //   // background: "linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)",
-
-        //   // 5. Элегантный серый:
-        //   // background: "linear-gradient(135deg, #8e9eab 0%, #eef2f3 100%)",
-
-        //   // 6. Фоновое изображение:
-        //   // backgroundImage: "url('/path/to/your/image.jpg')",
-        //   // backgroundSize: "cover",
-        //   // backgroundPosition: "center",
       }}
     >
       <Card sx={{ maxWidth: 400, width: "100%", m: 2 }}>
@@ -220,20 +198,3 @@ export default function Login() {
     </Box>
   );
 }
-
-//        // 2. Закат:
-//   // background: "linear-gradient(135deg, #ff9a9e 0%, #fecfef 50%, #fecfef 100%)",
-
-//   // 3. Северное сияние:
-//   // background: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)",
-
-//   // 4. Космос:
-//   // background: "linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)",
-
-//   // 5. Элегантный серый:
-//   // background: "linear-gradient(135deg, #8e9eab 0%, #eef2f3 100%)",
-
-//   // 6. Фоновое изображение:
-//   // backgroundImage: "url('/path/to/your/image.jpg')",
-//   // backgroundSize: "cover",
-//   // backgroundPosition: "center",

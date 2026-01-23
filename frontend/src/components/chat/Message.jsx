@@ -3,7 +3,7 @@ import { Paper, Typography, Box, Chip } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
 
-// Компонент для отображения одного сообщения в чате
+// component for displaying a single message
 const Message = ({ message, isUser }) => {
   return (
     <Box
@@ -13,7 +13,7 @@ const Message = ({ message, isUser }) => {
         mb: 2,
       }}
     >
-      {/* Аватар (иконка) */}
+      {/* Avatar (icon) */}
       <Box
         sx={{
           display: "flex",

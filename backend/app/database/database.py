@@ -15,7 +15,7 @@ from sqlalchemy.orm import sessionmaker, Session, joinedload
 from app.models import Base
 from app.models.user import User as SQLUser
 from app.models.chat import ChatSession as SQLChatSession, ChatMessage as SQLChatMessage, ChatLog as SQLChatLog
-from app.schemas.user import UserCreate, User as PydanticUser, UserUpdate, sqlalchemy_to_pydantic
+from app.schemas.user import UserCreate, User as PydanticUser
 from app.schemas.chat import (
     ChatSession as PydanticChatSession, 
     ChatMessage as PydanticMessage,
@@ -468,7 +468,7 @@ class DatabaseManager:
     # ---------------------------
     
     def _sqlalchemy_user_to_pydantic(self, db_user: SQLUser) -> PydanticUser:
-        return sqlalchemy_to_pydantic(db_user)
+        return PydanticUser.model_validate(db_user)
 
     def _sqlalchemy_session_to_pydantic(self, db_session: SQLChatSession, session: Session = None) -> PydanticChatSession:  
         message_count = 0
@@ -512,21 +512,8 @@ class DatabaseManager:
         )
     
     def _sqlalchemy_message_to_pydantic(self, db_message: SQLChatMessage) -> PydanticMessage:
-        metadata = None
-        if db_message.message_metadata:
-            try:
-                metadata = json.loads(db_message.message_metadata)
-            except json.JSONDecodeError:
-                metadata = None
-
-        return PydanticMessage(
-            id=db_message.id,
-            chat_id=db_message.chat_id,
-            role=db_message.role,
-            content=db_message.content,
-            metadata=metadata,
-            created_at=db_message.created_at
-        )
+        """Convert SQLAlchemy message to Pydantic using automatic validation."""
+        return PydanticMessage.model_validate(db_message)
     
 
     def _sqlalchemy_session_to_pydantic_with_loaded_messages(

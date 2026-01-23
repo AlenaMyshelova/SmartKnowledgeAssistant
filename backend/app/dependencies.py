@@ -42,21 +42,21 @@ async def get_current_user_optional(
     access_token: Optional[str] = Cookie(None)
 ) -> Optional[User]:
     """
-    Возвращает текущего пользователя или None, если пользователь не аутентифицирован.
-    Проверяет токен из нескольких источников (заголовок, cookie, query параметр).
+    Returns the current user or None if the user is not authenticated.
+    Checks the token from multiple sources (header, cookie, query parameter).
     """
     jwt_token = None
     
-    # 1. Из стандартного Authorization: Bearer xxx
+    # 1. From standard Authorization: Bearer xxx
     if token:
         jwt_token = token
-    # 2. Из HTTP Bearer схемы
+    # 2. From HTTP Bearer scheme
     elif credentials:
         jwt_token = credentials.credentials
-    # 3. Из cookie
+    # 3. From cookie
     elif access_token:
         jwt_token = access_token
-    # 4. Из query параметра (для SSE, WebSocket и т.д.)
+    # 4. From query parameter (for SSE, WebSocket, etc.)
     else:
         jwt_token = request.query_params.get("token")
     
@@ -86,11 +86,7 @@ async def get_current_user_optional(
 
 async def get_current_user(
     current_user: Optional[User] = Depends(get_current_user_optional)
-) -> User:
-    """
-    Возвращает текущего аутентифицированного пользователя.
-    Выбрасывает 401 если пользователь не аутентифицирован.
-    """
+) -> User:    
     if current_user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -103,10 +99,6 @@ async def get_current_user(
 async def get_current_active_user(
     current_user: User = Depends(get_current_user)
 ) -> User:
-    """
-    Проверяет, что пользователь активен.
-    Используется для эндпоинтов, требующих активного пользователя.
-    """
     if not current_user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -121,10 +113,8 @@ async def get_token_data(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     access_token: Optional[str] = Cookie(None)
 ) -> Optional[Dict[str, Any]]:
-    """
-    Извлекает данные токена из разных источников.
-    Возвращает словарь с данными или None.
-    """
+    """ Extracts token data from various sources."""
+
     jwt_token = None
     
     if token:

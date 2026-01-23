@@ -57,7 +57,7 @@ const ChatInterface = () => {
     if (chatId) {
       const parsedChatId = parseInt(chatId);
 
-      // Проверяем, не удалён ли этот чат
+      // check if chat is deleted
       const isDeleted = deletedChats.some((c) => c.id === parsedChatId);
       if (isDeleted) {
         console.log("Chat is deleted, redirecting to /chat");
@@ -65,25 +65,24 @@ const ChatInterface = () => {
         return;
       }
 
-      // Загружаем историю только если это другой чат
+      // Load history only if it's a different chat
       if (!currentChat || currentChat.id !== parsedChatId) {
         console.log("Loading chat history for:", parsedChatId);
         loadChatHistory(parsedChatId);
       }
     } else {
-      // Если мы на /chat без ID
+      // If we are on /chat without ID
       if (currentChat && currentChat.id > 0 && !isIncognito) {
-        // Есть текущий чат - переходим на него
+        // There is a current chat - redirect to it
         console.log("Redirecting to current chat:", currentChat.id);
         navigate(`/chat/${currentChat.id}`, { replace: true });
       } else {
-        // Нет текущего чата - очищаем сообщения
+        // No current chat - clear messages
         console.log("Clearing messages - no current chat");
         setMessages([]);
       }
     }
-  }, [chatId, deletedChats]); // Добавили deletedChats в зависимости
-
+  }, [chatId, deletedChats]); // Added deletedChats to dependencies
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
@@ -96,7 +95,7 @@ const ChatInterface = () => {
     setIsSending(true);
 
     try {
-      // НЕ создаем новый чат здесь - sendMessage сделает это сам
+      // Do not create a new chat here - sendMessage will do it itself
       await sendMessage(message, dataSource);
 
       if (isIncognito) {
@@ -348,15 +347,15 @@ const ChatInterface = () => {
       {/* Messages Area */}
       <Box
         sx={{
-          flexGrow: 1, // Занимает всё доступное пространство
+          flexGrow: 1, // Cover all available space
           overflow: "auto",
           backgroundColor: "background.default",
           display: "flex",
           flexDirection: "column",
-          minHeight: 0, // Важно для правильной работы flexbox
+          minHeight: 0,
         }}
       >
-        {/* Внутренний контейнер для контента */}
+        {/* Inner container for content */}
         <Box
           sx={{
             flexGrow: 1,
@@ -376,7 +375,7 @@ const ChatInterface = () => {
               sx={{
                 textAlign: "center",
                 p: 4,
-                flexGrow: 1, // Центрирует контент по вертикали
+                flexGrow: 1, // Centers content vertically
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: "center",
