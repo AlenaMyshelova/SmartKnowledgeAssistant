@@ -32,7 +32,6 @@ class SpeechService:
             "audio/ogg": ".ogg",
             "audio/flac": ".flac",
         }
-        # Maximum file size: 25MB
         self.max_file_size = 25 * 1024 * 1024
     
     async def transcribe_audio(
@@ -56,7 +55,6 @@ class SpeechService:
             HTTPException: If file is invalid or transcription fails
         """
         try:
-            # Validate file type
             content_type = audio_file.content_type
             if content_type not in self.supported_formats:
                 raise HTTPException(
@@ -67,7 +65,6 @@ class SpeechService:
             # Read file content
             audio_content = await audio_file.read()
             
-            # Validate file size
             if len(audio_content) > self.max_file_size:
                 raise HTTPException(
                     status_code=400,
@@ -141,15 +138,7 @@ class SpeechService:
             )
     
     async def validate_audio_file(self, audio_file: UploadFile) -> bool:
-        """
-        Validate that the uploaded file is a valid audio file.
         
-        Args:
-            audio_file: The uploaded file to validate
-            
-        Returns:
-            True if valid, raises HTTPException otherwise
-        """
         if not audio_file:
             raise HTTPException(
                 status_code=400,

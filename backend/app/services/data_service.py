@@ -1,7 +1,7 @@
 from typing import List, Dict, Any
 
 from app.data_manager import DataManager
-
+import logging
 class DataService:
     """
     Service for working with data sources.
@@ -21,12 +21,7 @@ class DataService:
         return self.data_manager.get_all_data_sources()
     
     def get_categories(self) -> List[str]:
-        """
-        Get all available FAQ categories.
-        
-        Returns:
-            List of category names
-        """
+        """ Get all available FAQ categories."""
         return self.data_manager.get_all_categories()
     
     def get_faqs_by_category(self, category: str) -> List[Dict[str, Any]]:
@@ -72,7 +67,6 @@ class DataService:
         """
         try:
             if data_source == "company_faqs":
-                # Use existing FAQ search method
                 results = self.search_faqs(query, top_k)
                 
                 # Convert to expected format
@@ -101,19 +95,12 @@ class DataService:
                 return []
                 
         except Exception as e:
-            # Log error but do not interrupt chat operation
-            import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Error in search_similar: {e}")
             return []
 
     def get_data_statistics(self) -> Dict[str, Any]:
-        """
-        Get data statistics.
-        
-        Returns:
-            Dictionary with statistics
-        """
+        """Get data statistics."""
         sources = self.get_all_data_sources()
         categories = self.get_categories()
         
@@ -124,5 +111,4 @@ class DataService:
             "sources_detail": sources
         }
 
-# Создаем единственный экземпляр сервиса
 data_service = DataService()

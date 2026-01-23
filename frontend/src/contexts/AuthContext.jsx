@@ -19,10 +19,10 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [token, setToken] = useState(() => localStorage.getItem("token"));
 
-  // Обработка OAuth callback и проверка токена
+  // Handle authentication on mount and URL changes
   useEffect(() => {
     const handleAuth = async () => {
-      // Проверяем токен в URL (OAuth callback)
+      // Check token in URL (OAuth callback)
       const urlParams = new URLSearchParams(location.search);
       const tokenFromUrl = urlParams.get("token");
 
@@ -31,13 +31,13 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem("token", tokenFromUrl);
         setToken(tokenFromUrl);
 
-        // Получаем информацию о пользователе
+        // Get user information
         try {
           const userInfo = await authApi.getCurrentUser();
           setUser(userInfo);
           localStorage.setItem("user", JSON.stringify(userInfo));
 
-          // Убираем токен из URL и перенаправляем
+          // Remove token from URL and redirect
           navigate("/chat", { replace: true });
         } catch (error) {
           console.error("Failed to get user info after OAuth:", error);
@@ -46,10 +46,10 @@ export const AuthProvider = ({ children }) => {
         } finally {
           setLoading(false);
         }
-        return; // Важно! Выходим после обработки OAuth
+        return;
       }
 
-      // Проверяем сохраненный токен
+      // Check saved token
       const savedToken = localStorage.getItem("token");
       const savedUser = localStorage.getItem("user");
 
@@ -57,7 +57,7 @@ export const AuthProvider = ({ children }) => {
         setToken(savedToken);
 
         try {
-          // Проверяем валидность токена
+          // Check token validity
           const userInfo = await authApi.getCurrentUser();
           setUser(userInfo);
           localStorage.setItem("user", JSON.stringify(userInfo));
@@ -71,7 +71,7 @@ export const AuthProvider = ({ children }) => {
           }
         }
       } else if (savedUser) {
-        // Если есть сохраненный пользователь но нет токена - очищаем
+        // If there is a saved user but no token - clear it
         localStorage.removeItem("user");
       }
 
@@ -81,7 +81,7 @@ export const AuthProvider = ({ children }) => {
     handleAuth();
   }, [location.search, navigate]);
 
-  // Следим за изменением токена и загружаем пользователя
+  // Watch for token changes and load user
   useEffect(() => {
     if (token && !user) {
       fetchUser();
@@ -136,7 +136,7 @@ export const AuthProvider = ({ children }) => {
     fetchUser,
   };
 
-  // Показываем загрузку пока проверяем аутентификацию
+  // Show loading while checking authentication
   if (loading) {
     return (
       <div

@@ -1,6 +1,3 @@
-"""
-SQLAlchemy ORM model for User.
-"""
 from sqlalchemy import (
     Column, Integer, String, Text, Boolean,
     DateTime, UniqueConstraint, Index
@@ -9,7 +6,6 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 
 from app.models.base import Base
-
 
 class User(Base):
     """User model for OAuth authentication."""
@@ -26,7 +22,6 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
 
-    # Relationships
     chat_sessions = relationship(
         "ChatSession",
         back_populates="user",

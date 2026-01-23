@@ -17,7 +17,7 @@ import { useChat } from "../../contexts/ChatContext";
 const drawerWidth = 280;
 
 const MainLayout = () => {
-  console.log("MainLayout rendered"); // Debug log
+  console.log("MainLayout rendered");
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));

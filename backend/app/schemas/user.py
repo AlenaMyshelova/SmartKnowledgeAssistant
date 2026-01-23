@@ -68,20 +68,6 @@ class OAuthProvider(BaseModel):
 
 
 class OAuthProvidersResponse(BaseModel):
-    """Schema for list of available OAuth providers."""
     providers: List[OAuthProvider]
 
 
-def sqlalchemy_to_pydantic(db_user) -> User:
-    """Convert SQLAlchemy User model to Pydantic User schema."""
-    return User(
-        id=db_user.id,
-        email=db_user.email,
-        name=db_user.name,
-        avatar_url=db_user.avatar_url,
-        oauth_provider=db_user.oauth_provider,
-        oauth_id=db_user.oauth_id,
-        is_active=db_user.is_active,
-        created_at=db_user.created_at,
-        last_login=db_user.last_login
-    )

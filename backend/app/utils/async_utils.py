@@ -1,7 +1,4 @@
-"""
-Async utilities for running synchronous code in thread pool.
-
-"""
+""" Async utilities for running synchronous code in thread pool."""
 import asyncio
 from functools import partial
 from typing import TypeVar, Callable, Any

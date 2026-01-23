@@ -48,11 +48,11 @@ export const ChatProvider = ({ children }) => {
   const [savedFilters, setSavedFilters] = useState([]);
   const [deletedChats, setDeletedChats] = useState([]);
 
-  // Refs для доступа к актуальным значениям в колбэках
+  // Refs for deleted chats and timers to access latest state in callbacks
   const deletedChatsRef = useRef(deletedChats);
   const deleteTimersRef = useRef(deleteTimers);
 
-  // Обновляем refs при изменении state
+  // update refs when states change
   useEffect(() => {
     deletedChatsRef.current = deletedChats;
   }, [deletedChats]);
@@ -83,7 +83,7 @@ export const ChatProvider = ({ children }) => {
     return response.json();
   };
 
-  // Load chats with pagination - ВСЕГДА без incognito
+  // Load chats with pagination
   const loadChats = useCallback(
     async (pageNum = 1, append = false) => {
       if (!token) return;
@@ -104,7 +104,7 @@ export const ChatProvider = ({ children }) => {
 
         let regularChats = (data.chats || []).filter((chat) => chat.id > 0);
 
-        // ВАЖНО: Фильтруем чаты которые находятся в процессе удаления
+        //  Filter out chats that are in the process of being deleted
         const deletedChatIds = deletedChats.map((c) => c.id);
         regularChats = regularChats.filter(
           (chat) => !deletedChatIds.includes(chat.id),
@@ -112,7 +112,7 @@ export const ChatProvider = ({ children }) => {
 
         if (append) {
           setChats((prev) => {
-            // При добавлении также фильтруем удалённые
+            // When appending, also filter out deleted chats
             const existingIds = prev.map((c) => c.id);
             const newChats = regularChats.filter(
               (c) => !existingIds.includes(c.id),
@@ -148,7 +148,7 @@ export const ChatProvider = ({ children }) => {
   const createNewChat = useCallback(
     async (title = null) => {
       try {
-        // Очищаем сообщения перед созданием нового чата
+        // Clear messages before creating a new chat
         setMessages([]);
 
         const data = await apiCall("/chat/sessions", {
@@ -170,13 +170,12 @@ export const ChatProvider = ({ children }) => {
           last_message: null,
         };
 
-        // НЕ добавляем incognito чаты в список
         if (!isIncognito) {
           setChats((prev) => [newChat, ...prev]);
         }
 
         setCurrentChat(newChat);
-        setMessages([]); // Убеждаемся, что сообщения пустые
+        setMessages([]);
 
         return data.chat_id;
       } catch (err) {
@@ -193,7 +192,6 @@ export const ChatProvider = ({ children }) => {
     async (chatId) => {
       if (!chatId || !token) return;
 
-      // Проверяем, не удалён ли этот чат
       const isDeleted = deletedChats.some((c) => c.id === chatId);
       if (isDeleted) {
         console.log("Chat is deleted, skipping load:", chatId);
@@ -207,7 +205,6 @@ export const ChatProvider = ({ children }) => {
         setMessages(data.messages || []);
       } catch (err) {
         console.error("Error loading chat history:", err);
-        // Если чат не найден (404) — очищаем состояние
         if (err.message.includes("404") || err.message.includes("not found")) {
           setCurrentChat(null);
           setMessages([]);
@@ -231,7 +228,7 @@ export const ChatProvider = ({ children }) => {
       });
 
       try {
-        // Добавляем сообщение пользователя в UI сразу
+        // Add user message to UI immediately
         const userMessage = {
           id: `temp-${Date.now()}`,
           role: "user",
@@ -241,7 +238,6 @@ export const ChatProvider = ({ children }) => {
 
         setMessages((prev) => [...prev, userMessage]);
 
-        // Формируем запрос
         const requestData = {
           message: message,
           chat_id: currentChat?.id || null,
@@ -256,9 +252,8 @@ export const ChatProvider = ({ children }) => {
 
         const data = response.data;
 
-        // Если это incognito - НЕ добавляем в список чатов
         if (isIncognito) {
-          // Обновляем currentChat для incognito
+          // Update currentChat for incognito
           if (!currentChat && data.chat_id) {
             setCurrentChat({
               id: data.chat_id,
@@ -273,7 +268,7 @@ export const ChatProvider = ({ children }) => {
             });
           }
 
-          // Только обновляем сообщения в текущей сессии
+          //  Only update messages for incognito
           setMessages((prev) => {
             const filtered = prev.filter((m) => !m.id.startsWith("temp-"));
             return [
@@ -296,11 +291,11 @@ export const ChatProvider = ({ children }) => {
             ];
           });
 
-          // НЕ обновляем список чатов!
+          // Do not update chat list for incognito
           return data;
         }
 
-        // Для обычных чатов - обновляем как раньше
+        // For regular chats - update
         if (!currentChat && data.chat_id) {
           const newChat = {
             id: data.chat_id,
@@ -317,13 +312,13 @@ export const ChatProvider = ({ children }) => {
           setCurrentChat(newChat);
           setChats((prev) => [newChat, ...prev]);
 
-          // Если создан новый чат, переходим на его URL
+          // If a new chat is created, navigate to its URL
           if (window.location.pathname === "/chat") {
             navigate(`/chat/${data.chat_id}`, { replace: true });
           }
         }
 
-        // Добавляем ответ ассистента
+        // Add assistant's response
         const assistantMessage = {
           id: data.message_id || `assistant-${Date.now()}`,
           role: "assistant",
@@ -336,7 +331,7 @@ export const ChatProvider = ({ children }) => {
           },
         };
 
-        // Обновляем сообщения
+        // Update messages
         setMessages((prev) => {
           const filtered = prev.filter((m) => m.id !== userMessage.id);
           return [
@@ -350,7 +345,7 @@ export const ChatProvider = ({ children }) => {
           ];
         });
 
-        // Обновляем информацию о чате в списке (только для обычных)
+        // Update chat information in the list
         if (!isIncognito && (currentChat || data.chat_id)) {
           const chatIdToUpdate = currentChat?.id || data.chat_id;
           setChats((prev) =>
@@ -367,14 +362,9 @@ export const ChatProvider = ({ children }) => {
           );
         }
 
-        // Перезагружаем список только для НЕ incognito
-        // if (!isIncognito) {
-        //   loadChats(1);
-        // }
-
         return data;
       } catch (err) {
-        // Удаляем временное сообщение при ошибке
+        // Remove temporary message on error
         setMessages((prev) => prev.filter((m) => !m.id.startsWith("temp-")));
 
         const errorMessage =
@@ -397,15 +387,15 @@ export const ChatProvider = ({ children }) => {
     setIsIncognito((prev) => {
       const newValue = !prev;
 
-      // При выходе из incognito - очищаем временные данные
+      // When turning off incognito, clear current chat and messages
       if (prev === true && newValue === false) {
         setCurrentChat(null);
         setMessages([]);
-        // Перезагружаем обычные чаты
+        // Reload regular chats
         loadChats(1);
       }
 
-      // При входе в incognito - очищаем текущий чат
+      // When entering incognito, clear current chat
       if (prev === false && newValue === true) {
         setCurrentChat(null);
         setMessages([]);
@@ -421,37 +411,36 @@ export const ChatProvider = ({ children }) => {
       const chatToDelete = chats.find((c) => c.id === chatId);
       if (!chatToDelete) return null;
 
-      // Сразу удаляем из UI
+      // Immediately remove from UI
       setChats((prev) => prev.filter((c) => c.id !== chatId));
 
-      // Добавляем в список удаленных
+      // Add to deleted list
       setDeletedChats((prev) => [...prev, chatToDelete]);
 
       if (currentChat?.id === chatId) {
         setCurrentChat(null);
         setMessages([]);
-        // Переходим на главную страницу чата
         navigate("/chat");
       }
 
-      // Создаем таймер для отложенного удаления
+      // Create a timer for delayed deletion
       const timer = setTimeout(async () => {
         try {
           await apiCall(`/chat/sessions/${chatId}`, {
             method: "DELETE",
           });
 
-          // После успешного удаления убираем из deletedChats
+          // After successful deletion, remove from deletedChats
           setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
 
-          // Удаляем таймер
+          // Remove timer
           setDeleteTimers((prev) => {
             const newTimers = { ...prev };
             delete newTimers[chatId];
             return newTimers;
           });
         } catch (err) {
-          // При ошибке восстанавливаем чат
+          // On error, restore chat
           setChats((prev) => {
             if (!prev.find((c) => c.id === chatId)) {
               return [...prev, chatToDelete].sort(
@@ -469,9 +458,9 @@ export const ChatProvider = ({ children }) => {
             });
           }
         }
-      }, 5000); // 5 секунд на undo
+      }, 5000); // 5 seconds to undo
 
-      // Сохраняем таймер
+      // Save timer
       setDeleteTimers((prev) => ({ ...prev, [chatId]: timer }));
 
       return chatToDelete;
@@ -479,7 +468,7 @@ export const ChatProvider = ({ children }) => {
     [chats, currentChat, navigate],
   );
 
-  // Undo delete - использует refs для актуальных значений
+  // Undo delete - uses refs for current values
   const undoDelete = useCallback(
     (chatId) => {
       console.log("undoDelete called for chatId:", chatId);
@@ -494,7 +483,7 @@ export const ChatProvider = ({ children }) => {
         return;
       }
 
-      // Отменяем таймер удаления
+      // Cancel delete timer
       const timer = deleteTimersRef.current[chatId];
       if (timer) {
         console.log("Clearing timer for chatId:", chatId);
@@ -508,7 +497,7 @@ export const ChatProvider = ({ children }) => {
         console.log("No timer found for chatId:", chatId);
       }
 
-      // Восстанавливаем чат в список
+      // Restore chat to list
       setChats((prev) => {
         if (prev.find((c) => c.id === chatId)) {
           console.log("Chat already in list, not adding");
@@ -520,24 +509,24 @@ export const ChatProvider = ({ children }) => {
         );
       });
 
-      // Удаляем из списка удаленных
+      // Remove from deleted list
       setDeletedChats((prev) => prev.filter((c) => c.id !== chatId));
       console.log("Chat restored successfully");
     },
-    [], // Пустые зависимости - используем refs
+    [], // Empty dependencies - using refs
   );
 
-  // Очистка таймеров при размонтировании
+  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
-      // Очищаем все таймеры при размонтировании компонента
+      // Clear all timers on component unmount
       Object.values(deleteTimers).forEach((timer) => clearTimeout(timer));
     };
   }, [deleteTimers]);
 
   const updateChat = useCallback(
     async (chatId, updates) => {
-      // Оптимистичное обновление UI
+      // Optimistic UI update
       setChats((prev) =>
         prev.map((chat) =>
           chat.id === chatId ? { ...chat, ...updates } : chat,
@@ -550,10 +539,10 @@ export const ChatProvider = ({ children }) => {
           body: JSON.stringify(updates),
         });
       } catch (err) {
-        // НЕ вызываем loadChats при ошибке если чат удалён
+        // Do not call loadChats on error if chat is deleted
         const isDeleted = deletedChats.some((c) => c.id === chatId);
         if (!isDeleted) {
-          // Откатываем изменения только если чат не удалён
+          // Revert changes only if chat is not deleted
           loadChats(page);
         }
         console.error("Error updating chat:", err);
@@ -676,7 +665,7 @@ export const ChatProvider = ({ children }) => {
     }
   }, []);
 
-  // Загружаем чаты когда пользователь меняется
+  // Load chats when user changes
   useEffect(() => {
     if (isAuthenticated && user?.id && token) {
       console.log("User authenticated, loading chats for:", user);
@@ -714,7 +703,7 @@ export const ChatProvider = ({ children }) => {
     return () => clearTimeout(timer);
   }, [searchQuery, searchChats]);
 
-  // Алиасы для совместимости
+  // Aliases for compatibility
   const userChats = chats;
   const loadUserChats = loadChats;
 

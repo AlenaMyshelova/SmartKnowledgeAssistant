@@ -24,7 +24,6 @@ class ChatSession(Base):
     is_pinned = Column(Boolean, default=False)
     is_incognito = Column(Boolean, default=False)
 
-    # Relationships
     user = relationship("User", back_populates="chat_sessions")
     messages = relationship(
         "ChatMessage",
@@ -43,7 +42,6 @@ class ChatSession(Base):
 
 
 class ChatMessage(Base):
-    """Chat message model."""
     __tablename__ = 'chat_messages'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -53,7 +51,6 @@ class ChatMessage(Base):
     message_metadata = Column(Text, nullable=True)  # JSON string
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Relationships
     chat = relationship("ChatSession", back_populates="messages")
 
     __table_args__ = (

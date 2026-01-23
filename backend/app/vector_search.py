@@ -12,27 +12,28 @@ from app.core.config import settings
 
 class VectorSearchEngine:
     """
-    Класс для векторного поиска с использованием FAISS и OpenAI эмбеддингов.
-    Превращает тексты в векторы и выполняет семантический поиск.
+    Class for vector search using FAISS and OpenAI embeddings.
+    Converts texts into vectors and performs semantic search.
+
     """
     
     def __init__(self, index_dir: str = "./data/indexes"):
-        """Инициализация поискового движка."""
+        """Initialization of the search engine."""
         self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        self.embedding_model = "text-embedding-3-small"  # Модель OpenAI для эмбеддингов
+        self.embedding_model = "text-embedding-3-small"  # OpenAI model for embeddings
         current_file = Path(__file__).resolve()
         backend_dir = current_file.parent.parent 
         self.index_dir = backend_dir / index_dir
         self.index_dir.mkdir(exist_ok=True, parents=True)
         
         logger.info(f"Vector index path: {self.index_dir}") 
-        # Словари для хранения индексов и данных
-        self.indexes = {}          # FAISS индексы {source_id: index}
-        self.documents = {}        # Исходные документы {source_id: [docs]}
+        # Dictionaries for storing indexes and data
+        self.indexes = {}          # FAISS indexes {source_id: index}
+        self.documents = {}        # Original documents {source_id: [docs]}
         self.last_updated = {}     # {source_id: timestamp}
     
     def _get_embedding(self, text: str) -> List[float]:
-        """Получение эмбеддинга для текста через OpenAI API."""
+        """Get embedding for a text using OpenAI API."""
         try:
             text = text.replace("\n", " ")
             response = self.client.embeddings.create(
@@ -42,10 +43,10 @@ class VectorSearchEngine:
             return response.data[0].embedding
         except Exception as e:
             print(f"Error creating embedding: {e}")
-            return [0.0] * 1536  # Размерность эмбеддингов модели
+            return [0.0] * 1536  # Dimension of the model's embeddings
     
     def _get_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
-        """Получение эмбеддингов для нескольких текстов (пакетный режим)."""
+        """Get embeddings for multiple texts (batch mode)."""
         try:
             cleaned_texts = [text.replace("\n", " ") for text in texts]
             response = self.client.embeddings.create(
@@ -58,9 +59,9 @@ class VectorSearchEngine:
             return [[0.0] * 1536 for _ in range(len(texts))]
     
     def _create_faiss_index(self, embeddings: List[List[float]]) -> faiss.IndexFlatL2:
-        """Создание FAISS индекса из списка эмбеддингов."""
+        """Create a FAISS index from a list of embeddings."""
         embeddings_np = np.array(embeddings).astype('float32')
-        dimension = embeddings_np.shape[1]  # Размерность векторов
+        dimension = embeddings_np.shape[1]  # Dimension of the vectors
         index = faiss.IndexFlatL2(dimension)
         index.add(embeddings_np)
         return index
@@ -72,29 +73,29 @@ class VectorSearchEngine:
         text_columns: List[str],
         metadata_columns: Optional[List[str]] = None
     ) -> None:
-        """Построение индекса из pandas DataFrame."""
+        """Build index from pandas DataFrame."""
         if metadata_columns is None:
             metadata_columns = []
         
-        # Шаг 1: Подготовка текстов
+        # Step 1: Prepare texts
         texts = []
         documents = []
         
         for _, row in df.iterrows():
-            # Объединяем текст из указанных колонок
+            # Combine text from specified columns
             combined_text = " ".join([str(row[col]) for col in text_columns if col in row])
             texts.append(combined_text)
             
-            # Сохраняем оригинальный документ с метаданными
+            # Save original document with metadata
             doc = {col: row[col] for col in df.columns if col in text_columns + metadata_columns}
             doc["_source_id"] = source_id
             doc["_document_id"] = len(documents)
             documents.append(doc)
         
-        # Шаг 2: Генерация эмбеддингов (по батчам)
+        # Step 2: Generate embeddings (batch mode)
         print(f"Generating embeddings for {len(texts)} texts from {source_id}...")
         
-        batch_size = 100  # Размер пакета для API
+        batch_size = 100  # Batch size for API
         embeddings = []
         
         for i in range(0, len(texts), batch_size):
@@ -103,31 +104,31 @@ class VectorSearchEngine:
             embeddings.extend(batch_embeddings)
             print(f"Processed batch {i//batch_size + 1}/{(len(texts)-1)//batch_size + 1}")
         
-        # Шаг 3: Создание FAISS индекса
+        # Step 3: Create FAISS index
         print(f"Building FAISS index for {source_id}...")
         index = self._create_faiss_index(embeddings)
         
-        # Шаг 4: Сохранение индекса и данных
+        # Step 4: Save index and data
         self.indexes[source_id] = index
         self.documents[source_id] = documents
         self.last_updated[source_id] = time.time()
         
-        # Шаг 5: Сохранение на диск
+        # Step 5: Save to disk
         self._save_index(source_id)
         print(f"Index for {source_id} built successfully with {len(documents)} documents.")
     
     def build_index_for_company_faqs(self, csv_path: str) -> None:
-        """Построение индекса для файла FAQ компании."""
+        """Build index for company FAQ file."""
         try:
-            # Загружаем CSV файл
+            # Load CSV file
             df = pd.read_csv(csv_path)
             
-            # Определяем разделитель, если это не стандартная запятая
+            # Determine delimiter if not standard comma
             if len(df.columns) == 1:
-                # Пробуем другой разделитель
+                # Try another delimiter
                 df = pd.read_csv(csv_path, sep=';')
             
-            # Строим индекс
+            # Build index
             self.build_index_from_dataframe(
                 df=df,
                 source_id="company_faqs",
@@ -144,36 +145,36 @@ class VectorSearchEngine:
         source_id: str, 
         top_k: int = 5
     ) -> List[Dict[str, Any]]:
-        """Семантический поиск по индексу."""
+        """Semantic search in the index."""
         try:
-            # Шаг 1: Проверяем наличие индекса
+            # Step 1: Check if index exists
             if source_id not in self.indexes:
-                # Пробуем загрузить индекс с диска
+                # Try to load index from disk
                 if not self._load_index(source_id):
                     print(f"No index found for {source_id}")
                     return []
             
-            # Шаг 2: Получаем эмбеддинг запроса
+            # Step 2: Get query embedding
             query_embedding = self._get_embedding(query)
             query_vector = np.array([query_embedding]).astype('float32')
             
-            # Шаг 3: Выполняем поиск по индексу
+            # Step 3: Perform search on index
             distances, indices = self.indexes[source_id].search(query_vector, top_k)
             
-            # Шаг 4: Формируем результаты
+            # Step 4: Format results
             results = []
             for i, doc_idx in enumerate(indices[0]):
                 if doc_idx < 0 or doc_idx >= len(self.documents[source_id]):
-                    continue  # Пропускаем невалидные индексы
+                    continue  # Skip invalid indices
                 
-                # Получаем оригинальный документ
+                # Get original document
                 doc = self.documents[source_id][doc_idx].copy()
                 
-                # Добавляем оценку близости (преобразуем в диапазон 0-1)
+                # Add similarity score (convert to range 0-1)
                 similarity = 1 / (1 + distances[0][i])
                 doc["_score"] = float(similarity)
                 
-                # Удаляем служебные поля
+                # Remove internal fields
                 doc.pop("_source_id", None)
                 doc.pop("_document_id", None)
                 
@@ -186,20 +187,20 @@ class VectorSearchEngine:
             return []
     
     def _save_index(self, source_id: str) -> bool:
-        """Сохранение индекса на диск."""
+        """Save index to disk."""
         try:
-            # Проверяем наличие индекса и данных
+            # Check if index and data exist
             if source_id not in self.indexes or source_id not in self.documents:
                 return False
             
-            # Создаем директорию если нужно
+            # Create directory if needed
             index_path = self.index_dir / f"{source_id}.index"
             data_path = self.index_dir / f"{source_id}.data"
             
-            # Сохраняем FAISS индекс
+            # Save FAISS index
             faiss.write_index(self.indexes[source_id], str(index_path))
             
-            # Сохраняем документы и метаданные
+            # Save documents and metadata
             with open(data_path, 'wb') as f:
                 pickle.dump({
                     'documents': self.documents[source_id],
@@ -213,19 +214,19 @@ class VectorSearchEngine:
             return False
     
     def _load_index(self, source_id: str) -> bool:
-        """Загрузка индекса с диска."""
+        """Load index from disk."""
         try:
-            # Проверяем наличие файлов
+            # Check if files exist
             index_path = self.index_dir / f"{source_id}.index"
             data_path = self.index_dir / f"{source_id}.data"
             
             if not index_path.exists() or not data_path.exists():
                 return False
             
-            # Загружаем FAISS индекс
+            # Load FAISS index
             self.indexes[source_id] = faiss.read_index(str(index_path))
             
-            # Загружаем документы и метаданные
+            # Load documents and metadata
             with open(data_path, 'rb') as f:
                 data = pickle.load(f)
                 self.documents[source_id] = data['documents']
@@ -239,10 +240,10 @@ class VectorSearchEngine:
             return False
     
     def list_indexes(self) -> List[Dict[str, Any]]:
-        """Получение списка всех доступных индексов."""
+        """Get a list of all available indexes."""
         indexes = []
         
-        # Проверяем сохраненные на диске индексы
+        # Check saved indexes on disk
         for file_path in self.index_dir.glob("*.index"):
             source_id = file_path.stem
             data_path = self.index_dir / f"{source_id}.data"
@@ -250,7 +251,7 @@ class VectorSearchEngine:
             if not data_path.exists():
                 continue
             
-            # Если индекс еще не загружен, загружаем его метаданные
+            # If the index is not yet loaded, load its metadata
             if source_id not in self.last_updated and data_path.exists():
                 try:
                     with open(data_path, 'rb') as f:
@@ -273,5 +274,4 @@ class VectorSearchEngine:
         
         return indexes
 
-# Создаем глобальный экземпляр поискового движка
 vector_search = VectorSearchEngine()

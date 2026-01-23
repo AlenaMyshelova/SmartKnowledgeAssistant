@@ -80,9 +80,6 @@ class MigrationManager:
             return False
     
     def create_migration(self, message: str, autogenerate: bool = True) -> bool:
-        """
-        Create a new migration script.
-        """
         try:
             command.revision(
                 self.alembic_cfg, 
