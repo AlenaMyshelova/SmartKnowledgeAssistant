@@ -1,6 +1,6 @@
 # 🤖 Smart Knowledge Assistant
 
-My awesome assistan. The bestest in the Universe! Bow to your new evil overlord!
+My awesome assistant. The bestest in the Universe! Bow to your new evil overlord!
 
 AI-powered knowledge assistant provides intelligent answers based on company FAQs using RAG (Retrieval-Augmented Generation) with OpenAI GPT.
 
