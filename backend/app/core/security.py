@@ -13,7 +13,7 @@ from app.schemas.user import TokenData
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
     """
-    Создает JWT токен доступа
+    Creates a JWT access token.
     """
     to_encode = data.copy()
     if expires_delta:
