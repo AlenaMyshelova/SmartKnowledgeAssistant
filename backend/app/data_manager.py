@@ -57,7 +57,7 @@ class DataManager:
     def _read_csv_with_fallback(self, path: Path) -> pd.DataFrame:
         """
         Try reading CSV first with sep=';', then with sep=','.
-        Raise an exception if both attempts fail.
+
         """
         last_err: Optional[Exception] = None
 
@@ -106,7 +106,6 @@ class DataManager:
     def _ensure_faq_index(self) -> None:
         """Check existence and freshness of vector index for FAQ."""
         try:
-            # Check if index exists
             index_exists = False
             for index_info in vector_search.list_indexes():
                 if index_info['id'] == 'company_faqs':
@@ -159,7 +158,6 @@ class DataManager:
     
     #  Fallback text search
     def _fallback_text_search(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """Fallback text search (original implementation)."""
         df = self.data_sources.get("company_faqs")
         if df is None or df.empty:
             return []
@@ -187,14 +185,7 @@ class DataManager:
     def search_uploaded_file(self, query: str, file_id: str, limit: int = 5) -> List[Dict[str, Any]]:
         """
         Search uploaded file using vector search.
-        
-        Args:
-            query: search query
-            file_id: file identifier
-            limit: maximum number of results
-            
-        Returns:
-            List of found rows with relevance scores
+    
         """
         try:
             # Form source identifier
@@ -217,7 +208,6 @@ class DataManager:
                     print(f"File not found: {file_id}")
                     return []
             
-            # Perform vector search
             results = vector_search.search(query, source_id, top_k=limit)
             return results
             
